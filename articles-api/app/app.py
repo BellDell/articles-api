@@ -7,18 +7,14 @@ app = Flask(__name__)
 DATA = {
     "authors": [
         {
-            "author": {
-                "id": 1,
-                "first_name": "John",
-                "last_name": "Doe",
-            }
+            "id": 1,
+            "first_name": "John",
+            "last_name": "Doe",
         },
         {
-            "author": {
-                "id": 2,
-                "first_name": "Alise",
-                "last_name": "Bean",
-            }
+            "id": 2,
+            "first_name": "Alise",
+            "last_name": "Bean",
         }
     ],
     "articles": [
@@ -87,8 +83,8 @@ def get_article(article_id):
 
 def find_author(author_id:int):
     for author in DATA["authors"]:
-        if author["author"]["id"] == author_id:
-            return author["author"]
+        if author["id"] == author_id:
+            return author
     return None
 
 

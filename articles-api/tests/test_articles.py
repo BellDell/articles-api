@@ -21,10 +21,9 @@ def test_get_authors_returns_authors(client):
     assert len(data) > 0
 
     author = data[0]
-    assert "author" in author
-    assert "id" in author["author"]
-    assert "first_name" in author["author"]
-    assert "last_name" in author["author"]
+    assert "id" in author
+    assert "first_name" in author
+    assert "last_name" in author
 
 
 def test_get_articles_returns_articles_with_authors(client):
@@ -40,6 +39,7 @@ def test_get_articles_returns_articles_with_authors(client):
     assert "id" in article
     assert "title" in article
     assert "content" in article
+    assert "id" in article["author"]
     assert "first_name" in article["author"]
     assert "last_name" in article["author"]
 
