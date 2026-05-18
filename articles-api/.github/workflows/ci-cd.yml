@@ -37,15 +37,27 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build image
+      - name: Build image (local tag for smoke test)
         run: |
-          docker build -t ghcr.io/${{ github.repository }}:latest .
+          docker build -t articles-api:ci .
       - name: Run container and smoke test
         run: |
-          CONTAINER_ID=$(docker run -d -p 5001:5000 ghcr.io/${{ github.repository }}:latest)
-          # wait a bit for the container to start
-          sleep 2
-          curl -f http://localhost:5001/health
+          # publish container port 5000 to host port 5002 to avoid macOS conflicts
+          CONTAINER_ID=$(docker run -d -p 5002:5000 articles-api:ci)
+
+          # retry loop for health check (up to ~10s)
+          for i in {1..10}; do
+            if curl -sSf http://localhost:5002/health >/dev/null 2>&1; then
+              echo "health ok"
+              break
+            fi
+            echo "waiting for container... ($i)"
+            sleep 1
+          done
+
+          # final check (fail the step if not reachable)
+          curl -f http://localhost:5002/health
+
           docker stop $CONTAINER_ID
 
   publish:
