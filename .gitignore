@@ -1,137 +1,31 @@
-######################
-# Node
-######################
-/node/
-node_tmp/
-node_modules/
+# Python
 __pycache__/
-app/__pycache__
 *.py[cod]
-venv
-volume/
-npm-debug.log.*
-/.awcache/*
-/.cache-loader/*
-coverage.xml
-######################
-# SASS
-######################
-.sass-cache/
+.pytest_cache/
+.coverage
+htmlcov/
 
-######################
-# Eclipse
-######################
-*.pydevproject
-.project
-.metadata
-tmp/
-tmp/**/*
-*.tmp
-*.bak
-*.swp
-*~.nib
-local.properties
-.classpath
-.settings/
-.loadpath
-.factorypath
+# Virtual environments
+venv/
+.venv/
+env/
 
-# External tool builders
-.externalToolBuilders/**
-
-# Locally stored "Eclipse launch configurations"
-*.launch
-
-# CDT-specific
-.cproject
-
-# PDT-specific
-.buildpath
-
-# STS-specific
-/.sts4-cache/*
-
-######################
-# IntelliJ
-######################
-.idea/
-*.iml
-*.iws
-*.ipr
-*.ids
-*.orig
-classes/
-out/
-
-######################
-# Visual Studio Code
-######################
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-*.code-workspace
-
-######################
-# Maven
-######################
-/log/
-/target/
-
-######################
-# Gradle
-######################
-.gradle/
-/build/
-/buildSrc/.gradle/
-/buildSrc/build/
-
-######################
-# Package Files
-######################
-*.jar
-*.war
-*.ear
+# SQLite / local databases
 *.db
+*.sqlite
+*.sqlite3
+*.sqlitedb
 
-######################
-# Windows
-######################
-# Windows image file caches
+# IDEs
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
 Thumbs.db
 
-# Folder config file
-Desktop.ini
+# Environment variables
+.env
 
-######################
-# Mac OSX
-######################
-.DS_Store
-.svn
-.env_git
-
-# Thumbnails
-._*
-
-# Files that might appear on external disk
-.Spotlight-V100
-.Trashes
-
-######################
-# Directories
-######################
-/bin/
-/deploy/
-
-######################
 # Logs
-######################
-*.log*
-
-
-/volume/*
-
-run-localstack.sh.gitcommit
-.coverage
-
+*.log
