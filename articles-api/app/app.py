@@ -40,24 +40,27 @@ DATA = {
 
 @app.route("/authors")
 def get_authors():
-    return DATA["authors"]
+    return jsonify(DATA["authors"])  # ensure JSON response
 
 
-# @app.route("/articles")
-# def get_articles():
-#     for article in DATA["articles"]:
-#         article["author"] = find_author(article["author_id"])
-#         yield article
-
+@app.route("/articles")
+def get_articles():
+    articles_with_authors = []
+    for article in DATA["articles"]:
+        article_copy = article.copy()
+        article_copy["author"] = find_author(article_copy["author_id"]) 
+        article_copy.pop("author_id", None)
+        articles_with_authors.append(article_copy)
+    return jsonify(articles_with_authors)
 
 
 @app.route("/author/<int:author_id>")
 def author(author_id):
-    """Get the author of the article."""
+    """Get the author by id."""
     author = find_author(author_id)
     if not author:
         return jsonify({"error": "Author not found"}), 404
-    return jsonify({author})
+    return jsonify(author)
 
 
 @app.route("/health")
@@ -82,11 +85,10 @@ def get_article(article_id):
     return jsonify({"error": "Article not found"}), 404
 
 
-
 def find_author(author_id:int):
     for author in DATA["authors"]:
         if author["author"]["id"] == author_id:
-            return author
+            return author["author"]
     return None
 
 

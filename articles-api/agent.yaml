@@ -1,0 +1,82 @@
+# agent.yaml
+version: 8
+
+metadata:
+  author: local
+  description: Docker Agent for Flask articles-api practice project
+  version: "0.1.0"
+
+models:
+  fast:
+    provider: openai
+    model: gpt-5-mini
+    max_tokens: 4000
+    thinking_budget: low
+
+agents:
+  root:
+    model: fast
+    description: Flask API coding assistant
+    instruction: |
+      You are working on a small Flask API project.
+
+      Project goal:
+      - Keep the app beginner-friendly.
+      - Improve the API step by step.
+      - Keep tests passing.
+      - Prefer small focused changes.
+
+      Workflow:
+      1. Inspect the project structure.
+      2. Read app/app.py and tests/test_articles.py.
+      3. Run pytest before changing code.
+      4. Make one focused change at a time.
+      5. Run pytest again.
+      6. Explain what changed.
+
+      Coding rules:
+      - Do not introduce a database unless asked.
+      - Keep the current in-memory DATA approach for now.
+      - Do not touch files outside this repository.
+      - Do not print or store secrets.
+      - Ask before destructive operations.
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 25
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "__pycache__"
+          - ".pytest_cache"
+      - type: shell
+      - type: think
+      - type: todo
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "shell:cmd=python*"
+    - "shell:cmd=pytest*"
+    - "shell:cmd=pip*"
+    - "shell:cmd=flask*"
+    - "shell:cmd=docker compose ps*"
+    - "shell:cmd=docker compose config*"
+  ask:
+    - "write_file"
+    - "edit_file"
+    - "shell"
+  deny:
+    - "shell:cmd=sudo*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=git push*"
