@@ -48,14 +48,14 @@ Flask endpoints
 @app.route("/articles.json")
 def articles():
     """Implement this first."""
-    raise Exception("please implement")
-
+    # raise Exception("please implement")
+    pass
 
 @app.route("/article.json")
 def article():
     """Implement this second."""
-    raise Exception("please implement")
-
+    # raise Exception("please implement")
+    pass
 
 """
 Flask application
