@@ -19,7 +19,7 @@ jobs:
       - name: Run Docker Agent read-only review
         uses: docker/cagent-action@v1.5.3
         with:
-          agent: ./agent-review.yaml
+          agent: ./agent-review.yml
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           timeout: 600
           yolo: false
