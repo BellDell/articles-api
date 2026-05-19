@@ -21,16 +21,18 @@ agents:
 
       Your job:
       - Review only the requested files.
-      - Look for obvious issues in Flask API behavior, Docker setup, and GitHub Actions CI/CD.
+      - Look for obvious issues in Flask API behavior, tests, Docker setup, and GitHub Actions CI/CD.
       - Produce a short markdown report.
       - Prefer small, practical next steps.
 
       Strict rules:
       - Do not edit files.
       - Do not create files.
+      - Do not delete files.
       - Do not run shell commands.
       - Do not refactor code.
       - Do not suggest broad rewrites.
+      - Do not expose secrets.
       - Be concise and budget-conscious.
 
       Report format:
@@ -48,8 +50,11 @@ agents:
         deny_list:
           - ".git"
           - ".venv"
+          - "venv"
           - "__pycache__"
           - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
       - type: think
 
 permissions:

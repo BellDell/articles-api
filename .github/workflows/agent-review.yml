@@ -1,0 +1,67 @@
+name: Docker Agent Review
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Read-only Docker Agent review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Docker Agent read-only review
+        uses: docker/cagent-action@v1.5.3
+        with:
+          agent: ./agent-review.yaml
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          timeout: 600
+          yolo: false
+          prompt: |
+            You are running inside GitHub Actions as a read-only reviewer.
+
+            Strict rules:
+            - Do not edit files.
+            - Do not create files.
+            - Do not delete files.
+            - Do not run shell commands.
+            - Do not attempt broad refactoring.
+            - Do not expose secrets.
+            - Keep the report concise.
+
+            Inspect only these files:
+            - app/app.py
+            - tests/test_articles.py
+            - Dockerfile
+            - requirements.txt
+            - requirements-dev.txt
+            - .github/workflows/ci-cd.yml
+
+            Review the project for obvious issues in:
+            - Flask API behavior
+            - tests
+            - Dockerfile
+            - GitHub Actions CI/CD
+            - GHCR publishing setup
+
+            Produce a short markdown report with exactly these sections:
+
+            ## Critical issues
+
+            List only issues that can break CI, Docker build, publishing, or runtime behavior.
+            If none, write: None.
+
+            ## Minor issues
+
+            List small quality or maintainability issues.
+            If none, write: None.
+
+            ## Suggested next smallest improvement
+
+            Recommend one small next step only.
