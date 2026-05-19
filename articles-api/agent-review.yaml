@@ -23,13 +23,14 @@ agents:
       - Review only the requested files.
       - Look for obvious issues in Flask API behavior, Docker setup, and GitHub Actions CI/CD.
       - Produce a short markdown report.
+      - Prefer small, practical next steps.
 
       Strict rules:
       - Do not edit files.
       - Do not create files.
+      - Do not run shell commands.
       - Do not refactor code.
       - Do not suggest broad rewrites.
-      - Prefer small, practical next steps.
       - Be concise and budget-conscious.
 
       Report format:
