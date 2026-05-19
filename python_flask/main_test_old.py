@@ -1,7 +1,6 @@
-from main import *
-
-import json
 import pytest
+
+from main import *
 
 
 @pytest.fixture(scope="function")
