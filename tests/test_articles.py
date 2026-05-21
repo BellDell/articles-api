@@ -9,6 +9,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 @pytest.fixture
 def client():
     app.config["TESTING"] = True
+    # reset DATA before each test to keep tests isolated
+    from app import app as app_module
+    app_module.DATA["articles"] = [
+        {
+            "id": 1,
+            "title": "A brief history",
+            "content": "Some article content",
+            "author_id": 1,
+        },
+        {
+            "id": 2,
+            "title": "A long history",
+            "content": "More article content",
+            "author_id": 1,
+        },
+    ]
+
     with app.test_client() as client:
         yield client
 
@@ -94,3 +111,23 @@ def test_create_article_unknown_author_returns_400(client):
     }
     response = client.post("/articles", json=payload)
     assert response.status_code == 400
+
+
+# New tests for DELETE /articles/<id>
+
+def test_delete_existing_article_returns_204(client):
+    # ensure article exists
+    response = client.get("/articles/1")
+    assert response.status_code == 200
+
+    del_resp = client.delete("/articles/1")
+    assert del_resp.status_code == 204
+
+    # subsequent fetch should return 404
+    after = client.get("/articles/1")
+    assert after.status_code == 404
+
+
+def test_delete_unknown_article_returns_404(client):
+    del_resp = client.delete("/articles/9999")
+    assert del_resp.status_code == 404

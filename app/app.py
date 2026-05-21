@@ -118,6 +118,17 @@ def get_article(article_id):
     return jsonify({"error": "Article not found"}), 404
 
 
+@app.route("/articles/<int:article_id>", methods=["DELETE"])
+def delete_article(article_id):
+    """Delete an article by ID."""
+    for idx, article in enumerate(DATA["articles"]):
+        if article["id"] == article_id:
+            # remove the article
+            DATA["articles"].pop(idx)
+            return ("", 204)
+    return jsonify({"error": "Article not found"}), 404
+
+
 def find_author(author_id:int):
     for author in DATA["authors"]:
         if author["id"] == author_id:
