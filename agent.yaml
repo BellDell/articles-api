@@ -98,3 +98,7 @@ permissions:
     - "shell:cmd=chown*"
     - "shell:cmd=git push*"
     - "shell:cmd=git commit*"
+    - "shell:cmd=git stash*"
+    - "shell:cmd=git reset*"
+    - "shell:cmd=git restore*"
+    - "shell:cmd=git checkout*"
