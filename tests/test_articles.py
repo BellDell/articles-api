@@ -165,3 +165,40 @@ def test_broken_clock_custom_target_wrong_times(client):
     assert rp[0]["wrong_time"] == "12:00"
     assert rp[0]["real_time"] == "11:00"
     assert rp[0]["day_shift"] == 0
+
+
+# New tests for POST /articles
+
+def test_create_article_success(client):
+    payload = {
+        "title": "New Article",
+        "content": "Interesting content",
+        "author_id": 1,
+    }
+    response = client.post("/articles", json=payload)
+    assert response.status_code == 201
+    data = response.get_json()
+    assert "id" in data
+    assert data["title"] == payload["title"]
+    assert data["content"] == payload["content"]
+    assert "author" in data
+    # author object should not include author_id in article response
+    assert "author_id" not in data
+
+
+def test_create_article_missing_field_returns_400(client):
+    payload = {
+        "title": "Incomplete",
+    }
+    response = client.post("/articles", json=payload)
+    assert response.status_code == 400
+
+
+def test_create_article_unknown_author_returns_400(client):
+    payload = {
+        "title": "Orphan",
+        "content": "No parent",
+        "author_id": 999,
+    }
+    response = client.post("/articles", json=payload)
+    assert response.status_code == 400
