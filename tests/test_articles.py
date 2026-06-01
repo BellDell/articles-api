@@ -149,6 +149,30 @@ def test_broken_clock_invalid_time_format_400(client):
     assert "error" in data
 
 
+def test_broken_clock_form_invalid_time_returns_html(client):
+    """Form POST with invalid time returns 400 with text/html content type."""
+    form_data = {
+        "wrong_observed_time": "25:00",
+        "real_observed_time": "12:00",
+    }
+    response = client.post("/broken-clock/calculate", data=form_data)
+    assert response.status_code == 400
+    assert response.content_type == "text/html" or "text/html" in response.content_type
+    assert "Error" in response.get_data(as_text=True)
+
+
+def test_broken_clock_form_invalid_time_has_back_link(client):
+    """Form POST with invalid time includes a link back to /broken-clock."""
+    form_data = {
+        "wrong_observed_time": "25:00",
+        "real_observed_time": "12:00",
+    }
+    response = client.post("/broken-clock/calculate", data=form_data)
+    assert response.status_code == 400
+    text = response.get_data(as_text=True)
+    assert "/broken-clock" in text
+
+
 def test_broken_clock_custom_target_wrong_times(client):
     """POST /broken-clock/calculate with custom target_wrong_times list e.g. ['12:00']."""
     payload = {
