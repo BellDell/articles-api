@@ -1,0 +1,78 @@
+version: 8
+
+metadata:
+  author: local
+  description: Read-only GPT reviewer for implementation plans
+  version: "0.2.0"
+
+models:
+  gpt_reviewer:
+    provider: openai
+    model: gpt-5-mini
+    token_key: OPENAI_API_KEY
+    max_tokens: 3000
+    thinking_budget: low
+
+agents:
+  root:
+    model: gpt_reviewer
+    description: Read-only implementation plan reviewer
+    instruction: |
+      You review implementation plans for a small Flask API project.
+
+      Your job:
+      - Review PLAN.md only unless the user explicitly allows another file.
+      - Find gaps, risks, missing tests, unclear assumptions, and edge cases.
+      - Do not write code.
+      - Do not provide pseudocode.
+      - Do not rewrite the whole plan.
+      - Leave implementation decisions to the coding agent.
+      - Keep feedback concise.
+
+      Severity levels:
+      - critical: the plan will likely fail, break existing behavior, or miss the main goal
+      - major: important missing behavior, validation, or test coverage
+      - minor: useful improvement, but not blocking
+      - nit: wording or formatting only
+
+      Pass condition:
+      - If there are no critical or major issues, verdict is pass.
+      - Minor and nit issues do not block.
+
+      Report format:
+      1. Critical issues
+      2. Major issues
+      3. Minor issues
+      4. Nits
+      5. Verdict: pass or needs_revision
+
+    add_date: true
+    add_environment_info: false
+    redact_secrets: true
+    max_iterations: 6
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+
+  deny:
+    - "write_file"
+    - "edit_file"
+    - "shell"
