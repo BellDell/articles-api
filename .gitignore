@@ -15,6 +15,7 @@ env/
 *.sqlite
 *.sqlite3
 *.sqlitedb
+data/
 
 # IDEs
 .idea/

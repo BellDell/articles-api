@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
 import os
 import sys
-from datetime import datetime
+import sqlite3
+import json
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 
@@ -178,6 +180,81 @@ def broken_clock_form():
 """
 
 
+def get_db_path():
+    return os.environ.get("APP_DB_PATH", "data/app.db")
+
+
+def ensure_db_initialized(db_path):
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS broken_clock_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                real_observed_time TEXT NOT NULL,
+                wrong_observed_time TEXT NOT NULL,
+                offset_minutes INTEGER NOT NULL,
+                offset_human TEXT NOT NULL,
+                clock_status TEXT NOT NULL,
+                target_wrong_times_json TEXT NOT NULL,
+                reference_points_json TEXT NOT NULL
+            )
+        """)
+
+
+def save_calculation(db_path, real_observed_time, wrong_observed_time,
+                     offset_minutes, offset_human, clock_status,
+                     target_wrong_times, reference_points):
+    ensure_db_initialized(db_path)
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """INSERT INTO broken_clock_history
+               (created_at, real_observed_time, wrong_observed_time,
+                offset_minutes, offset_human, clock_status,
+                target_wrong_times_json, reference_points_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (created_at, real_observed_time, wrong_observed_time,
+             offset_minutes, offset_human, clock_status,
+             json.dumps(target_wrong_times), json.dumps(reference_points))
+        )
+
+
+def get_history(db_path):
+    ensure_db_initialized(db_path)
+    rows = []
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            "SELECT * FROM broken_clock_history ORDER BY created_at DESC"
+        )
+        for row in cursor.fetchall():
+            rows.append({
+                "id": row["id"],
+                "created_at": row["created_at"],
+                "real_observed_time": row["real_observed_time"],
+                "wrong_observed_time": row["wrong_observed_time"],
+                "offset_minutes": row["offset_minutes"],
+                "offset_human": row["offset_human"],
+                "clock_status": row["clock_status"],
+                "target_wrong_times": json.loads(row["target_wrong_times_json"]),
+                "reference_points": json.loads(row["reference_points_json"]),
+            })
+    return rows
+
+
+@app.route("/broken-clock/history")
+def broken_clock_history():
+    db_path = get_db_path()
+    try:
+        history = get_history(db_path)
+    except Exception as e:
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+    return jsonify(history), 200
+
+
 @app.route("/broken-clock/calculate", methods=["POST"])
 def broken_clock_calculate():
     """Calculate broken clock offset and target times.
@@ -288,6 +365,20 @@ def broken_clock_calculate():
     explanation = (
         f"The wrong clock is {offset_human} relative to the real clock (status: {clock_status})."
     )
+
+    # Save to DB on successful calculation
+    try:
+        db_path = get_db_path()
+        save_calculation(db_path, real_observed_time, wrong_observed_time,
+                         offset_minutes, offset_human, clock_status,
+                         target_wrong_times, reference_points)
+    except Exception as e:
+        if request.is_json:
+            return jsonify({"error": f"Database error: {str(e)}"}), 500
+        else:
+            return f"""<!DOCTYPE html>
+<html><head><title>Error</title></head>
+<body><h1>500 Internal Server Error</h1><p>Could not save calculation.</p></body></html>""", 500, {'Content-Type': 'text/html'}
 
     # If the request came from a browser form (not JSON), return a simple HTML page
     if not request.is_json:
