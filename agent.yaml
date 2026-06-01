@@ -1,49 +1,60 @@
-# agent.yaml
 version: 8
 
 metadata:
   author: local
-  description: Docker Agent for Flask articles-api practice project
-  version: "0.1.0"
+  description: Single-agent DeepSeek coding setup for Flask articles-api
+  version: "0.7.0"
 
 models:
-  fast:
+  deepseek_coder:
     provider: openai
-    model: gpt-5-mini
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    token_key: DEEPSEEK_API_KEY
     max_tokens: 4000
-    thinking_budget: low
 
 agents:
   root:
-    model: fast
-    description: Flask API coding assistant
+    model: deepseek_coder
+    description: Local coding assistant for small Flask API tasks
     instruction: |
-      You are working on a small Flask API project.
-
-      Project goal:
-      - Keep the app beginner-friendly.
-      - Improve the API step by step.
-      - Keep tests passing.
-      - Prefer small focused changes.
+      You are a careful coding assistant working on a small Flask API project.
 
       Workflow:
-      1. Inspect the project structure.
-      2. Read app/app.py and tests/test_articles.py.
-      3. Run pytest before changing code.
-      4. Make one focused change at a time.
-      5. Run pytest again.
-      6. Explain what changed.
+      - Inspect only files needed for the current task.
+      - Make small, focused changes.
+      - Edit only files explicitly allowed by the user.
+      - Do not commit or push changes.
+      - Do not run broad analysis unless asked.
+      - Do not spawn or delegate to sub-agents.
 
-      Coding rules:
-      - Do not introduce a database unless asked.
-      - Keep the current in-memory DATA approach for now.
-      - Do not touch files outside this repository.
-      - Do not print or store secrets.
-      - Ask before destructive operations.
+      Planning mode:
+      - If asked to write a plan, create or update PLAN.md only.
+      - Do not write code during planning.
+      - Keep plans high-level.
+      - Do not include pseudocode unless explicitly requested.
+
+      Coding mode:
+      - Prefer app/app.py and tests/test_articles.py for API tasks.
+      - Keep diffs minimal.
+      - Do not touch Dockerfile, workflows, README, or agent configs unless explicitly asked.
+
+      Project constraints:
+      - Keep the current in-memory DATA approach unless explicitly asked.
+      - Do not add a database unless explicitly asked.
+      - Keep API response shapes consistent.
+      - Keep changes beginner-friendly.
+
+      Cost control:
+      - Do not use sub-agents.
+      - Stop after completing the requested change.
+      - Do not repeatedly re-read the whole repository.
+
     add_date: true
     add_environment_info: true
     redact_secrets: true
-    max_iterations: 25
+    max_iterations: 10
+
     toolsets:
       - type: filesystem
         allow_list:
@@ -51,11 +62,13 @@ agents:
         deny_list:
           - ".git"
           - ".venv"
+          - "venv"
           - "__pycache__"
           - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
       - type: shell
       - type: think
-      - type: todo
 
 permissions:
   allow:
@@ -66,13 +79,17 @@ permissions:
     - "shell:cmd=python*"
     - "shell:cmd=pytest*"
     - "shell:cmd=pip*"
-    - "shell:cmd=flask*"
-    - "shell:cmd=docker compose ps*"
-    - "shell:cmd=docker compose config*"
+    - "shell:cmd=docker build*"
+    - "shell:cmd=docker run*"
+    - "shell:cmd=docker ps*"
+    - "shell:cmd=docker stop*"
+    - "shell:cmd=curl*"
+
   ask:
     - "write_file"
     - "edit_file"
     - "shell"
+
   deny:
     - "shell:cmd=sudo*"
     - "shell:cmd=rm*"
@@ -80,3 +97,8 @@ permissions:
     - "shell:cmd=chmod*"
     - "shell:cmd=chown*"
     - "shell:cmd=git push*"
+    - "shell:cmd=git commit*"
+    - "shell:cmd=git stash*"
+    - "shell:cmd=git reset*"
+    - "shell:cmd=git restore*"
+    - "shell:cmd=git checkout*"

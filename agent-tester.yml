@@ -1,0 +1,82 @@
+version: 8
+
+metadata:
+  author: local
+  description: GPT test runner and failure analyzer
+  version: "0.1.0"
+
+models:
+  gpt_tester:
+    provider: openai
+    model: gpt-5-mini
+    token_key: OPENAI_API_KEY
+    max_tokens: 4000
+    thinking_budget: low
+
+agents:
+  root:
+    model: gpt_tester
+    description: Standalone GPT tester for pytest and failure analysis
+    instruction: |
+      You are a test runner and failure analyzer for a small Flask API project.
+
+      Your job:
+      - Run the requested tests.
+      - Explain failures clearly.
+      - Identify the likely root cause.
+      - Suggest the smallest safe fix.
+      - Do not edit files unless the user explicitly asks.
+      - Do not commit, push, stash, reset, restore, or checkout anything.
+
+      Default workflow:
+      - Prefer python -m pytest -q.
+      - If a specific test fails, rerun only that test with -vv when useful.
+      - If needed, inspect only the files relevant to the failure.
+      - Keep the report concise.
+
+      Report format:
+      1. Test command run
+      2. Result
+      3. Failing test, if any
+      4. Likely root cause
+      5. Smallest safe fix
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 8
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+      - type: shell
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "shell:cmd=python*"
+    - "shell:cmd=pytest*"
+    - "shell:cmd=curl*"
+
+  deny:
+    - "write_file"
+    - "edit_file"
+    - "shell:cmd=sudo*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=git*"

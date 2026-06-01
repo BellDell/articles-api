@@ -1,0 +1,220 @@
+version: 8
+
+metadata:
+  author: local
+  description: Multi-model agent setup for Flask articles-api
+  version: "0.1.0"
+
+models:
+  deepseek_coder:
+    provider: openai
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    token_key: DEEPSEEK_API_KEY
+    max_tokens: 4000
+
+  gpt_coordinator:
+    provider: openai
+    model: gpt-5-mini
+    token_key: OPENAI_API_KEY
+    max_tokens: 4000
+    thinking_budget: low
+
+  claude_architect:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    token_key: ANTHROPIC_API_KEY
+    max_tokens: 4000
+    thinking_budget: 1024
+
+agents:
+  root:
+    model: gpt_coordinator
+    description: Coordinator for multi-agent development tasks
+    instruction: |
+      You coordinate specialist agents for a small Flask API project.
+
+      Your job:
+      - Understand the user's request.
+      - Decide whether delegation is needed.
+      - Keep the workflow small and cost-aware.
+      - Combine specialist feedback into one final answer.
+      - Do not commit or push changes.
+
+      Use specialists:
+      - coder: DeepSeek implementation agent for small focused code changes.
+      - tester: GPT test runner and failure analyzer.
+      - architect: Claude UX, API contract, and architecture reviewer.
+
+      Cost-control rules:
+      - Do not use specialists unless their role is clearly needed.
+      - Do not ask every specialist for every task.
+      - Prefer coder only for small implementation tasks.
+      - Prefer tester only when tests or failures need analysis.
+      - Prefer architect only for UX/API/architecture review.
+      - Stop after the requested result is achieved.
+
+      Project constraints:
+      - Keep the current in-memory DATA approach unless explicitly asked.
+      - Do not add a database unless explicitly asked.
+      - Keep API response shapes consistent.
+      - Keep changes beginner-friendly.
+      - Do not touch unrelated files.
+      - Ask before destructive operations.
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 18
+
+    sub_agents:
+      - coder
+      - tester
+      - architect
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+      - type: think
+      - type: todo
+
+  coder:
+    model: deepseek_coder
+    description: DeepSeek implementation agent
+    instruction: |
+      You implement small code changes.
+
+      Rules:
+      - Edit only files explicitly allowed by the user.
+      - Prefer app/app.py and tests/test_articles.py for API tasks.
+      - Keep diffs minimal.
+      - Do not edit Dockerfile, workflows, README, or agent configs unless explicitly asked.
+      - Do not commit or push changes.
+      - Do not run broad analysis.
+      - After edits, report exactly what changed.
+
+    max_iterations: 10
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+      - type: think
+
+  tester:
+    model: gpt_coordinator
+    description: GPT test runner and failure analyzer
+    instruction: |
+      You run tests and explain failures.
+
+      Rules:
+      - Prefer python -m pytest -q.
+      - Do not edit files unless explicitly asked.
+      - If tests fail, explain the root cause and the smallest safe fix.
+      - Review whether the implementation matches the requested behavior.
+      - Keep output concise.
+
+    max_iterations: 8
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+      - type: shell
+      - type: think
+
+  architect:
+    model: claude_architect
+    description: Claude UX and architecture reviewer
+    instruction: |
+      You review UX, API contract, and architecture.
+
+      Rules:
+      - Do not edit files unless explicitly asked.
+      - Do not run shell commands.
+      - Do not write implementation code.
+      - Do not provide long pseudocode.
+      - Focus on maintainability, user flow, API consistency, and future risks.
+      - Prefer one small practical recommendation over broad rewrites.
+      - Keep feedback concise.
+
+      Focus areas:
+      - Is the user flow understandable?
+      - Are labels and result messages clear?
+      - Are API response shapes consistent?
+      - Are errors and edge cases handled clearly?
+      - Is the feature getting too complex for a small Flask demo?
+
+    max_iterations: 6
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - ".mypy_cache"
+          - ".ruff_cache"
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "shell:cmd=python*"
+    - "shell:cmd=pytest*"
+    - "shell:cmd=pip*"
+    - "shell:cmd=docker build*"
+    - "shell:cmd=docker run*"
+    - "shell:cmd=docker ps*"
+    - "shell:cmd=docker stop*"
+    - "shell:cmd=curl*"
+
+  ask:
+    - "write_file"
+    - "edit_file"
+    - "shell"
+
+  deny:
+    - "shell:cmd=sudo*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=git push*"
+    - "shell:cmd=git commit*"
+    - "shell:cmd=git stash*"
+    - "shell:cmd=git reset*"
+    - "shell:cmd=git restore*"
+    - "shell:cmd=git checkout*"
