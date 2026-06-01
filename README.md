@@ -58,6 +58,7 @@ Available agent configs and when to use them.
 |---|---|---|---|
 | `agent.yaml` | DeepSeek | Small daily coding tasks: app.py, tests, small HTML/UI edits, small endpoint changes | Architecture-heavy tasks, broad review, or complex multi-step work |
 | `agent-plan-review.yml` | GPT | Reviewing `PLAN.md` before implementation; finding critical/major gaps | You need code edits or test execution |
+| `agent-tester.yml` | GPT | Running `python -m pytest -q`, explaining failures, identifying the smallest safe fix | Editing code or running git commands |
 | `agent-ux-architect.yml` | Claude | UX, frontend wording, API contract, product flow, architecture review | Simple code changes or cheap daily iteration |
 | `agent-multi.yml` | GPT + DeepSeek + Claude | Rare complex tasks that need coding + testing + architecture review in one run | Small edits, cost-sensitive work, or tasks that one agent can handle |
 
@@ -94,7 +95,21 @@ Review PLAN.md for the multi-article-delete feature.
 Check for missing edge cases, security gaps, and API contract consistency.
 ```
 
-### 3. `agent-ux-architect.yml`
+### 3. `agent-tester.yml`
+
+- Standalone GPT tester and failure analyzer.
+- Use for running `python -m pytest -q`, explaining failures, and identifying the smallest safe fix.
+- Must not edit code.
+- Must not run git commands.
+- Good for diagnosing test failures without mixing concerns.
+
+**Example prompt:**
+
+```
+Run python -m pytest -q. If any tests fail, explain the root cause and suggest the smallest safe fix.
+```
+
+### 4. `agent-ux-architect.yml`
 
 - Claude read-only UX/API/architecture reviewer.
 - Use for frontend UX, wording, API contract, product flow, architecture concerns.
@@ -108,7 +123,7 @@ Review the proposed endpoint /api/articles/batch.
 Is the request/response shape clear? Are there naming issues or UX concerns?
 ```
 
-### 4. `agent-multi.yml`
+### 5. `agent-multi.yml`
 
 - Multi-agent mode with GPT coordinator, DeepSeek coder, GPT tester, Claude architect.
 - Use rarely.
@@ -138,6 +153,7 @@ export OPENAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
 
 docker-agent run agent.yaml
+docker-agent run agent-tester.yml
 docker-agent run agent-plan-review.yml
 docker-agent run agent-ux-architect.yml
 docker-agent run agent-multi.yml
