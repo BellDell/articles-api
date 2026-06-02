@@ -1,8 +1,7 @@
-from flask import Flask
 import os
-import sys
 
 from app.routes import register_routes
+from flask import Flask
 
 app = Flask(__name__)
 register_routes(app)
