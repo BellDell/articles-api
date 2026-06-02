@@ -7,6 +7,7 @@ database initialization, and CRUD operations for calculation history.
 import os
 import sqlite3
 import json
+from contextlib import closing
 from datetime import datetime, timezone
 
 
@@ -23,7 +24,7 @@ def ensure_db_initialized(db_path):
     db_dir = os.path.dirname(db_path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS broken_clock_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +38,7 @@ def ensure_db_initialized(db_path):
                 reference_points_json TEXT NOT NULL
             )
         """)
+        conn.commit()
 
 
 def save_calculation(db_path, real_observed_time, wrong_observed_time,
@@ -45,7 +47,7 @@ def save_calculation(db_path, real_observed_time, wrong_observed_time,
     """Insert a successful calculation into the history table."""
     ensure_db_initialized(db_path)
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.execute(
             """INSERT INTO broken_clock_history
                (created_at, real_observed_time, wrong_observed_time,
@@ -56,13 +58,14 @@ def save_calculation(db_path, real_observed_time, wrong_observed_time,
              offset_minutes, offset_human, clock_status,
              json.dumps(target_wrong_times), json.dumps(reference_points))
         )
+        conn.commit()
 
 
 def get_history(db_path):
     """Return all saved calculations, newest first, with JSON fields decoded."""
     ensure_db_initialized(db_path)
     rows = []
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(
             "SELECT * FROM broken_clock_history ORDER BY created_at DESC"
