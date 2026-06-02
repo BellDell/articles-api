@@ -90,7 +90,7 @@
       <form id="bc-form" action="/broken-clock/calculate" method="post">
 
       <div class="field">
-        <label class="label">Actual time right now (HH:MM)</label>
+        <label class="label" for="real_observed_time">Actual time right now (HH:MM)</label>
         <div class="control">
           <input id="real_observed_time" name="real_observed_time" class="input bc-input" type="text"
                  value="{{ default_real }}" placeholder="HH:MM" autocomplete="off">
@@ -99,7 +99,7 @@
       </div>
 
       <div class="field">
-        <label class="label">What the broken clock shows right now (HH:MM)</label>
+        <label class="label" for="wrong_observed_time">What the broken clock shows right now (HH:MM)</label>
         <div class="control">
           <input id="wrong_observed_time" name="wrong_observed_time" class="input bc-input" type="text"
                  value="10:00" placeholder="HH:MM" autocomplete="off">
@@ -107,7 +107,7 @@
       </div>
 
       <div class="field">
-        <label class="label">Broken-clock times to look up (comma-separated)</label>
+        <label class="label" for="target_wrong_times">Broken-clock times to look up (comma-separated)</label>
         <div class="control">
           <input id="target_wrong_times" name="target_wrong_times" class="input bc-input" type="text"
                  value="00:00,07:00,09:00" placeholder="00:00,07:00,09:00" autocomplete="off">

@@ -11,6 +11,8 @@ RUN python -m pip install --upgrade pip && \
 # Copy application code
 COPY app /app/app
 
+ENV HOST=0.0.0.0
+
 EXPOSE 5000
 
 # Run the Flask app
