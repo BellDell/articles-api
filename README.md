@@ -44,11 +44,19 @@ Quick start
 - There's a separate workflow (.github/workflows/agent-review.yml) you can run manually from the Actions tab named "Docker Agent Review".
 - It uses a local agent definition (agent-review.yml) and requires an OpenAI API key to run.
 
-6. Required GitHub secret
+7. Required GitHub secrets
 
-- Set the following repository secret for the Agent Review workflow to run:
+- Set the following repository secrets for the workflows to run:
 
   OPENAI_API_KEY
+  SONAR_TOKEN
+
+8. SonarQube Cloud analysis
+
+- Each CI run generates coverage data and sends it to SonarQube Cloud.
+- Sonar project: BellDell_articles-api (org: belldell)
+- Automatic Analysis in SonarQube Cloud should be disabled — analysis runs through GitHub Actions.
+- Required GitHub secret: SONAR_TOKEN
 
 ## Docker Agent workflow
 
