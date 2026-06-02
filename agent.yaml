@@ -50,6 +50,18 @@ agents:
       - Stop after completing the requested change.
       - Do not repeatedly re-read the whole repository.
 
+      Function size & complexity:
+      - Keep new Python functions small and focused.
+      - Target maximum function length: 20 lines.
+      - Hard maximum function length: 25 lines unless explicitly approved.
+      - If a function would exceed 25 lines, extract helpers.
+      - Avoid nested Flask route handlers inside large registration functions.
+      - Do not place multiple route handlers inside one large function.
+      - Keep route handlers thin: request parsing, helper calls, response only.
+      - Avoid mixing request parsing, domain logic, DB access, and rendering in one function.
+      - Avoid adding Sonar cognitive-complexity issues.
+      - If a task would require a larger function, stop and propose a smaller refactor plan.
+
     add_date: true
     add_environment_info: true
     redact_secrets: true
