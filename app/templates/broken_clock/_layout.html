@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Broken Clock{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+  <style>
+{% raw %}
+    .bc-nav {background: linear-gradient(135deg, #667eea, #764ba2);border-radius:0 0 14px 14px;box-shadow:0 2px 12px rgba(0,0,0,0.18);margin-bottom:1.5rem}
+    .bc-nav .navbar-item {color:#fff !important;font-weight:500;letter-spacing:0.01em}
+    .bc-nav .navbar-item:hover {background:rgba(255,255,255,0.18) !important;border-radius:6px}
+    .bc-nav .navbar-item.is-active {background:rgba(255,255,255,0.22) !important;border-radius:6px}
+    .bc-nav .navbar-brand .navbar-item {font-weight:700;font-size:1.15rem}
+    .bc-box {border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,0.07)}
+    .bc-input {border-radius:8px!important}
+    .bc-btn {border-radius:8px;font-weight:600}
+    body {background:#f5f7fb}
+{% endraw %}
+  </style>
+</head>
+<body>
+  <nav class="navbar bc-nav" role="navigation">
+    <div class="navbar-brand">
+      <span class="navbar-item">&#x23f0; Broken Clock</span>
+    </div>
+    <div class="navbar-menu">
+      <div class="navbar-start">
+        <a class="navbar-item{{ nav_calculator }}" href="/broken-clock">Calculator</a>
+        <a class="navbar-item{{ nav_history }}" href="/broken-clock/history">History</a>
+      </div>
+    </div>
+  </nav>
+  {% block content %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,43 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Broken Clock Results{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="container" style="max-width:800px">
+    <div class="box bc-box">
+      <h1 class="title" style="color:#4a4a8a">Broken Clock Results</h1>
+      <div class="notification {{ notif_class }}">
+        <strong>Offset:</strong> {{ offset_human }} (the broken clock is <strong>{{ clock_status }}</strong>)
+      </div>
+      <div class="content">
+        <table class="table is-bordered is-fullwidth">
+          <tbody>
+            <tr><th>Actual time you observed</th><td>{{ real_observed_time }}</td></tr>
+            <tr><th>Broken clock showed</th><td>{{ wrong_observed_time }}</td></tr>
+            <tr><th>Offset</th><td>{{ offset_human }}</td></tr>
+            <tr><th>Clock status</th><td>{{ clock_status }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <table class="table is-striped is-fullwidth">
+        <thead>
+          <tr>
+            <th>Broken clock shows</th>
+            <th>Actual time</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+{% for rp in reference_points %}
+          <tr>
+            <td>{{ rp.wrong_time }}</td>
+            <td>{{ rp.real_time }}</td>
+            <td>{% if rp.day_shift == -1 %}previous day{% elif rp.day_shift == 1 %}next day{% else %}same day{% endif %}</td>
+          </tr>
+{% endfor %}
+        </tbody>
+      </table>
+      <a class="button is-primary bc-btn" href="/broken-clock" style="background:linear-gradient(135deg,#667eea,#764ba2)">&#x2190; Calculate again</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Calculation History{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="container" style="max-width:800px">
+    <div class="box bc-box">
+      <h1 class="title" style="color:#4a4a8a">Calculation History</h1>
+{% if records %}
+      <table class="table is-striped is-fullwidth is-narrow">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Actual time observed</th>
+            <th>Broken clock showed</th>
+            <th>Offset</th>
+            <th>Status</th>
+            <th>Reference points</th>
+          </tr>
+        </thead>
+        <tbody>
+{% for r in records %}
+          <tr>
+            <td>{{ r.created_at }}</td>
+            <td>{{ r.real_observed_time }}</td>
+            <td>{{ r.wrong_observed_time }}</td>
+            <td>{{ r.offset_human }}</td>
+            <td>{{ r.clock_status }}</td>
+            <td>{{ r.ref_points_display }}</td>
+          </tr>
+{% endfor %}
+        </tbody>
+      </table>
+      <p class="is-size-7">Showing latest {{ records|length }} calculations, newest first.</p>
+{% else %}
+      <div class="notification is-info">
+        No calculations yet. <a href="/broken-clock">Go back</a> to run your first calculation.
+      </div>
+{% endif %}
+      <a class="button is-primary bc-btn mt-3" href="/broken-clock" style="background:linear-gradient(135deg,#667eea,#764ba2)">&#x2190; Calculate again</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

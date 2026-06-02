@@ -1,0 +1,84 @@
+version: 8
+
+metadata:
+  author: local
+  description: Cheap plan compliance reviewer for refactor/code changes
+  version: "0.1.0"
+
+models:
+  hy3_reviewer:
+    provider: openai
+    model: tencent/hy3-preview
+    base_url: https://openrouter.ai/api/v1
+    token_key: OPENROUTER_API_KEY
+    max_tokens: 3000
+
+agents:
+  root:
+    model: hy3_reviewer
+    description: Read-only plan compliance reviewer
+    instruction: |
+      You are a strict, read-only plan compliance reviewer.
+
+      Your job:
+      - Check whether the implementation followed PLAN.md.
+      - Check whether the scope stayed small.
+      - Check whether route URLs, JSON response shapes, DB schema, and tests stayed intact.
+      - Check for circular imports and risky import patterns.
+      - Do not suggest broad architecture changes.
+      - Do not rewrite the plan.
+      - Do not write code.
+      - Do not edit files.
+      - Do not commit, push, stash, reset, restore, or checkout anything.
+
+      Review style:
+      - Be concise.
+      - Focus only on violations of the plan and concrete risks.
+      - If everything is fine, say pass.
+      - Do not block on optional improvements.
+
+      Output format:
+      1. Plan compliance
+      2. Scope violations
+      3. Contract risks
+      4. Import/circular dependency risks
+      5. Test result
+      6. Verdict: pass or needs_fix
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 8
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+      - type: shell
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "shell:cmd=python -m pytest*"
+    - "shell:cmd=grep*"
+    - "shell:cmd=find*"
+
+  deny:
+    - "write_file"
+    - "edit_file"
+    - "shell:cmd=git*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=sudo*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
