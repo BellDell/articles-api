@@ -1,40 +1,246 @@
 {% extends "broken_clock/_layout.html" %}
+
 {% block title %}Broken Clock Calculator{% endblock %}
+
+{% block extra_style %}
+  .result-panel { display: none; margin-top: 1.5rem; }
+  .result-panel.is-visible { display: block; animation: fadeIn 0.25s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
+
+  .ref-table th { background: rgba(102,126,234,0.08); }
+  .day-badge {
+    font-size: 0.7rem;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .day-badge.same    { background:#e8f5e9; color:#2e7d32; }
+  .day-badge.prev    { background:#fff3e0; color:#e65100; }
+  .day-badge.next    { background:#e3f2fd; color:#1565c0; }
+  .spinner { display:inline-block; width:18px; height:18px; border:3px solid rgba(255,255,255,.5);
+    border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg) } }
+
+  /* Dark card aesthetic matching screenshots */
+  .bc-card {
+    background: #1e1e2e;
+    border-radius: 16px;
+    padding: 2rem;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  }
+  .bc-card .title   { color: #a78bfa; }
+  .bc-card .subtitle { color: #9ca3af; font-size: 0.92rem; }
+  .bc-card .label   { color: #e5e7eb; font-weight: 600; }
+  .bc-card .help    { color: #6b7280; }
+  .bc-card .bc-input {
+    background: #2a2a3e !important;
+    border-color: #3f3f5a !important;
+    color: #f3f4f6 !important;
+  }
+  .bc-card .bc-input:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102,126,234,0.25) !important;
+  }
+  .bc-card .bc-input::placeholder { color: #4b5563; }
+  .bc-card a { color: #818cf8; }
+  .bc-card a:hover { color: #a5b4fc; }
+
+  /* result card inside dark card */
+  .result-inner {
+    background: #16162a;
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid #2d2d4a;
+  }
+  .result-inner .label-cell { color: #9ca3af; font-size: 0.85rem; font-weight: 500; }
+  .result-inner .value-cell { color: #f3f4f6; font-weight: 600; }
+  .offset-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 1rem;
+  }
+  .offset-badge.fast     { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+  .offset-badge.slow     { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+  .offset-badge.accurate { background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.25); }
+
+  .ref-row { display:flex; justify-content:space-between; align-items:center;
+    padding: 8px 0; border-bottom: 1px solid #2d2d4a; gap: 1rem; }
+  .ref-row:last-child { border-bottom: none; }
+  .ref-wrong { color: #9ca3af; font-size:0.85rem; }
+  .ref-real  { color: #a78bfa; font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; }
+
+  body { background: #12121f; }
+{% endblock %}
+
 {% block content %}
-<section class="section">
-  <div class="container" style="max-width:640px">
-    <div class="box bc-box">
-      <h1 class="title" style="color:#4a4a8a">Broken Clock Calculator</h1>
-      <p class="subtitle is-6">Find out what time it really is when a clock is running fast or slow. Enter both times right now, then list the broken-clock readings you want to look up.</p>
-      <form action="/broken-clock/calculate" method="post">
-        <div class="field">
-          <label class="label">Actual time right now (HH:MM)</label>
-          <div class="control">
-            <input class="input bc-input" type="text" name="real_observed_time" value="{{ default_real }}" placeholder="HH:MM">
-          </div>
-          <p class="help">What the real clock, phone, or computer shows right now.</p>
+<section class="section" style="padding-top:1.5rem">
+  <div class="container" style="max-width:520px">
+    <div class="bc-card">
+      <h1 class="title is-4 mb-1">Broken Clock Calculator</h1>
+      <p class="subtitle mb-4">
+        Find out what time it really is when a clock is running fast or slow.
+        Enter both times right now, then list the broken-clock readings you want to look up.
+      </p>
+
+      <div id="bc-error" class="notification is-danger is-light" style="display:none;border-radius:10px"></div>
+
+      <form id="bc-form" action="/broken-clock/calculate" method="post">
+
+      <div class="field">
+        <label class="label">Actual time right now (HH:MM)</label>
+        <div class="control">
+          <input id="real_observed_time" name="real_observed_time" class="input bc-input" type="text"
+                 value="{{ default_real }}" placeholder="HH:MM" autocomplete="off">
         </div>
-        <div class="field">
-          <label class="label">What the broken clock shows right now (HH:MM)</label>
-          <div class="control">
-            <input class="input bc-input" type="text" name="wrong_observed_time" value="10:00" placeholder="HH:MM">
-          </div>
+        <p class="help">What the real clock, phone, or computer shows right now.</p>
+      </div>
+
+      <div class="field">
+        <label class="label">What the broken clock shows right now (HH:MM)</label>
+        <div class="control">
+          <input id="wrong_observed_time" name="wrong_observed_time" class="input bc-input" type="text"
+                 value="10:00" placeholder="HH:MM" autocomplete="off">
         </div>
-        <div class="field">
-          <label class="label">Broken-clock times to look up (comma-separated)</label>
-          <div class="control">
-            <input class="input bc-input" type="text" name="target_wrong_times" value="00:00,07:00,09:00" placeholder="00:00,07:00,09:00">
-          </div>
-          <p class="help">When the broken clock shows these times, what is the real time? For example: alarms or schedules.</p>
+      </div>
+
+      <div class="field">
+        <label class="label">Broken-clock times to look up (comma-separated)</label>
+        <div class="control">
+          <input id="target_wrong_times" name="target_wrong_times" class="input bc-input" type="text"
+                 value="00:00,07:00,09:00" placeholder="00:00,07:00,09:00" autocomplete="off">
         </div>
-        <div class="field">
-          <div class="control">
-            <button class="button is-primary bc-btn" type="submit" style="background:linear-gradient(135deg,#667eea,#764ba2)">Calculate real times</button>
-          </div>
-        </div>
-        <p class="is-size-7 mt-2"><a href="/broken-clock/history">View calculation history</a></p>
+        <p class="help">When the broken clock shows these times, what is the real time?
+          For example: alarms or schedules.</p>
+      </div>
+
+      <div class="field mt-5">
+        <button id="bc-submit" type="submit" class="button is-primary bc-btn is-fullwidth" style="height:2.8rem;font-size:1rem">
+          Calculate real times
+        </button>
+      </div>
+
+      <p class="is-size-7 mt-2 has-text-centered">
+        <a href="/broken-clock/history">View calculation history</a>
+      </p>
       </form>
+      <div id="result-panel" class="result-panel">
+        <div class="result-inner">
+          <div style="margin-bottom:1rem">
+            <div class="label-cell mb-1">Clock offset</div>
+            <span id="res-badge" class="offset-badge">—</span>
+          </div>
+          <div style="display:flex;gap:1.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
+            <div>
+              <div class="label-cell">You observed</div>
+              <div class="value-cell" id="res-real">—</div>
+            </div>
+            <div>
+              <div class="label-cell">Broken clock showed</div>
+              <div class="value-cell" id="res-wrong">—</div>
+            </div>
+            <div>
+              <div class="label-cell">Status</div>
+              <div class="value-cell" id="res-status">—</div>
+            </div>
+          </div>
+
+          <div class="label-cell mb-2">Reference points</div>
+          <div id="res-refs"></div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  const DAY_LABELS = { '-1': 'prev day', '0': 'same day', '1': 'next day' };
+  const DAY_CLASS  = { '-1': 'prev',     '0': 'same',     '1': 'next'     };
+
+  const form       = document.getElementById('bc-form');
+  const btn        = document.getElementById('bc-submit');
+  const errBox     = document.getElementById('bc-error');
+  const panel      = document.getElementById('result-panel');
+
+  function showError(msg) {
+    errBox.textContent = msg;
+    errBox.style.display = 'block';
+    panel.classList.remove('is-visible');
+  }
+  function hideError() { errBox.style.display = 'none'; }
+
+  function setLoading(loading) {
+    btn.disabled = loading;
+    btn.innerHTML = loading
+      ? '<span class="spinner"></span> Calculating…'
+      : 'Calculate real times';
+  }
+
+  function renderResult(data) {
+    const badge = document.getElementById('res-badge');
+    badge.textContent = data.offset_human;
+    badge.className = 'offset-badge ' + data.clock_status;
+
+    document.getElementById('res-real').textContent   = data.real_observed_time;
+    document.getElementById('res-wrong').textContent  = data.wrong_observed_time;
+    document.getElementById('res-status').textContent = data.clock_status;
+
+    const refsEl = document.getElementById('res-refs');
+    refsEl.innerHTML = data.reference_points.map(r => {
+      const shift = String(r.day_shift);
+      return `<div class="ref-row">
+        <span class="ref-wrong">Broken shows <strong style="color:#c4b5fd">${r.wrong_time}</strong></span>
+        <span class="ref-real">${r.real_time}</span>
+        <span class="day-badge ${DAY_CLASS[shift]}">${DAY_LABELS[shift]}</span>
+      </div>`;
+    }).join('');
+
+    panel.classList.add('is-visible');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    hideError();
+
+    const payload = {
+      real_observed_time:  document.getElementById('real_observed_time').value.trim(),
+      wrong_observed_time: document.getElementById('wrong_observed_time').value.trim(),
+      target_wrong_times:  document.getElementById('target_wrong_times').value
+        .split(',').map(s => s.trim()).filter(Boolean),
+    };
+
+    if (!payload.wrong_observed_time) {
+      showError('Please enter what the broken clock shows right now.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // RESTful JSON call — no page reload
+      const resp = await fetch('/broken-clock/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        showError(data.error || `Error ${resp.status}`);
+        return;
+      }
+      renderResult(data);
+    } catch (err) {
+      showError('Network error — please try again.');
+    } finally {
+      setLoading(false);
+    }
+  });
+})();
+</script>
 {% endblock %}

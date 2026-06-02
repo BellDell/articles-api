@@ -1,36 +1,153 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Broken Clock{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
   <style>
-{% raw %}
-    .bc-nav {background: linear-gradient(135deg, #667eea, #764ba2);border-radius:0 0 14px 14px;box-shadow:0 2px 12px rgba(0,0,0,0.18);margin-bottom:1.5rem}
-    .bc-nav .navbar-item {color:#fff !important;font-weight:500;letter-spacing:0.01em}
-    .bc-nav .navbar-item:hover {background:rgba(255,255,255,0.18) !important;border-radius:6px}
-    .bc-nav .navbar-item.is-active {background:rgba(255,255,255,0.22) !important;border-radius:6px}
-    .bc-nav .navbar-brand .navbar-item {font-weight:700;font-size:1.15rem}
-    .bc-box {border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,0.07)}
-    .bc-input {border-radius:8px!important}
-    .bc-btn {border-radius:8px;font-weight:600}
-    body {background:#f5f7fb}
-{% endraw %}
+    :root {
+      --grad: linear-gradient(135deg, #667eea, #764ba2);
+      --nav-h: 56px;
+    }
+
+    /* ── Navbar ── */
+    .bc-nav {
+      background: var(--grad);
+      box-shadow: 0 2px 16px rgba(0,0,0,0.22);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .bc-nav .navbar-brand .navbar-item {
+      color: #fff !important;
+      font-weight: 700;
+      font-size: 1.1rem;
+      gap: 6px;
+    }
+    .bc-nav .navbar-item {
+      color: rgba(255,255,255,0.88) !important;
+      font-weight: 500;
+      border-radius: 8px;
+      transition: background 0.15s;
+    }
+    .bc-nav .navbar-item:hover {
+      background: rgba(255,255,255,0.18) !important;
+      color: #fff !important;
+    }
+    .bc-nav .navbar-item.is-active {
+      background: rgba(255,255,255,0.24) !important;
+      color: #fff !important;
+      font-weight: 700;
+    }
+
+    /* Hamburger icon lines — white on purple bg */
+    .bc-nav .navbar-burger {
+      color: #fff;
+      height: var(--nav-h);
+      width: var(--nav-h);
+    }
+    .bc-nav .navbar-burger span {
+      background-color: #fff;
+      height: 2px;
+      left: calc(50% - 10px);
+      width: 20px;
+    }
+    .bc-nav .navbar-burger span:nth-child(1) { top: calc(50% - 7px); }
+    .bc-nav .navbar-burger span:nth-child(2) { top: calc(50% - 1px); }
+    .bc-nav .navbar-burger span:nth-child(3) { top: calc(50% + 5px); }
+
+    /* Mobile dropdown panel */
+    @media (max-width: 1023px) {
+      .bc-nav .navbar-menu.is-active {
+        background: linear-gradient(160deg, #5a6fd6, #6a3fa0);
+        padding: 0.5rem 1rem 1rem;
+        border-radius: 0 0 14px 14px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+      }
+      .bc-nav .navbar-menu.is-active .navbar-item {
+        border-radius: 8px;
+        padding: 0.6rem 1rem;
+      }
+    }
+
+    /* ── Page ── */
+    body { background: #f0f2f8; min-height: 100vh; }
+
+    .bc-box {
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.09);
+      background: #fff;
+    }
+    .bc-btn {
+      border-radius: 10px;
+      font-weight: 600;
+      background: var(--grad) !important;
+      border: none !important;
+      color: #fff !important;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .bc-btn:hover  { opacity: 0.88; transform: translateY(-1px); }
+    .bc-btn:active { transform: translateY(0); }
+    .bc-btn:disabled { opacity: 0.55; transform: none; cursor: not-allowed; }
+
+    .bc-input {
+      border-radius: 8px !important;
+      border-color: #d0d3e0 !important;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .bc-input:focus {
+      border-color: #667eea !important;
+      box-shadow: 0 0 0 3px rgba(102,126,234,0.18) !important;
+    }
+
+    {% block extra_style %}{% endblock %}
   </style>
 </head>
 <body>
-  <nav class="navbar bc-nav" role="navigation">
-    <div class="navbar-brand">
-      <span class="navbar-item">&#x23f0; Broken Clock</span>
+
+<nav class="navbar bc-nav" role="navigation" aria-label="main navigation">
+  <div class="navbar-brand">
+    <a class="navbar-item" href="/broken-clock">
+      ⏰ Broken Clock
+    </a>
+    <!-- Hamburger button — toggled by JS below -->
+    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
+       data-target="bc-navbar-menu">
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+      <span aria-hidden="true"></span>
+    </a>
+  </div>
+
+  <div id="bc-navbar-menu" class="navbar-menu">
+    <div class="navbar-start">
+      <a class="navbar-item {% if active_page == 'calculator' %}is-active{% endif %}"
+         href="/broken-clock">Calculator</a>
+      <a class="navbar-item {% if active_page == 'history' %}is-active{% endif %}"
+         href="/broken-clock/history">History</a>
     </div>
-    <div class="navbar-menu">
-      <div class="navbar-start">
-        <a class="navbar-item{{ nav_calculator }}" href="/broken-clock">Calculator</a>
-        <a class="navbar-item{{ nav_history }}" href="/broken-clock/history">History</a>
-      </div>
-    </div>
-  </nav>
-  {% block content %}{% endblock %}
+  </div>
+</nav>
+
+{% block content %}{% endblock %}
+
+<script>
+  // Hamburger toggle (Bulma doesn't ship JS)
+  document.addEventListener('DOMContentLoaded', () => {
+    const burgers = document.querySelectorAll('.navbar-burger');
+    burgers.forEach(burger => {
+      burger.addEventListener('click', () => {
+        const target = document.getElementById(burger.dataset.target);
+        burger.classList.toggle('is-active');
+        burger.setAttribute('aria-expanded',
+          burger.classList.contains('is-active'));
+        target.classList.toggle('is-active');
+      });
+    });
+  });
+</script>
+
+{% block extra_scripts %}{% endblock %}
 </body>
 </html>
