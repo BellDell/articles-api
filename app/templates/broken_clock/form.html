@@ -1,0 +1,40 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Broken Clock Calculator{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="container" style="max-width:640px">
+    <div class="box bc-box">
+      <h1 class="title" style="color:#4a4a8a">Broken Clock Calculator</h1>
+      <p class="subtitle is-6">Find out what time it really is when a clock is running fast or slow. Enter both times right now, then list the broken-clock readings you want to look up.</p>
+      <form action="/broken-clock/calculate" method="post">
+        <div class="field">
+          <label class="label">Actual time right now (HH:MM)</label>
+          <div class="control">
+            <input class="input bc-input" type="text" name="real_observed_time" value="{{ default_real }}" placeholder="HH:MM">
+          </div>
+          <p class="help">What the real clock, phone, or computer shows right now.</p>
+        </div>
+        <div class="field">
+          <label class="label">What the broken clock shows right now (HH:MM)</label>
+          <div class="control">
+            <input class="input bc-input" type="text" name="wrong_observed_time" value="10:00" placeholder="HH:MM">
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Broken-clock times to look up (comma-separated)</label>
+          <div class="control">
+            <input class="input bc-input" type="text" name="target_wrong_times" value="00:00,07:00,09:00" placeholder="00:00,07:00,09:00">
+          </div>
+          <p class="help">When the broken clock shows these times, what is the real time? For example: alarms or schedules.</p>
+        </div>
+        <div class="field">
+          <div class="control">
+            <button class="button is-primary bc-btn" type="submit" style="background:linear-gradient(135deg,#667eea,#764ba2)">Calculate real times</button>
+          </div>
+        </div>
+        <p class="is-size-7 mt-2"><a href="/broken-clock/history">View calculation history</a></p>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

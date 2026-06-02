@@ -1,0 +1,13 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Error{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="container" style="max-width:640px">
+    <div class="box bc-box">
+      <h1 class="title" style="color:#cf3a3a">Error</h1>
+      <div class="notification is-danger">{{ message }}</div>
+      <a class="button is-primary bc-btn" href="/broken-clock" style="background:linear-gradient(135deg,#667eea,#764ba2)">&#x2190; Calculate again</a>
+    </div>
+  </div>
+</section>
+{% endblock %}
