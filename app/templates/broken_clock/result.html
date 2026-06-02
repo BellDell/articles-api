@@ -1,42 +1,77 @@
+{# This template is used only as a fallback when JS is disabled.
+   The primary flow goes through form.html + fetch → JSON API. #}
 {% extends "broken_clock/_layout.html" %}
-{% block title %}Broken Clock Results{% endblock %}
+
+{% block title %}Results — Broken Clock{% endblock %}
+
+{% block extra_style %}
+  body { background: #12121f; }
+  .bc-card {
+    background: #1e1e2e; border-radius: 16px; padding: 2rem;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  }
+  .bc-card .title { color: #a78bfa; }
+  .offset-badge {
+    display: inline-block; padding: 5px 16px; border-radius: 20px;
+    font-weight: 700; font-size: 1rem; margin-bottom: 1.25rem;
+  }
+  .offset-badge.fast     { background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); }
+  .offset-badge.slow     { background:rgba(239,68,68,0.12);  color:#f87171; border:1px solid rgba(239,68,68,0.25); }
+  .offset-badge.accurate { background:rgba(52,211,153,0.12); color:#34d399; border:1px solid rgba(52,211,153,0.25); }
+  .meta-grid { display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+  .meta-item .lbl { color:#6b7280; font-size:0.8rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+  .meta-item .val { color:#f3f4f6; font-weight:600; }
+  .ref-row { display:flex; justify-content:space-between; align-items:center;
+    padding:9px 0; border-bottom:1px solid #2d2d4a; gap:1rem; }
+  .ref-row:last-child { border-bottom:none; }
+  .ref-wrong { color:#9ca3af; font-size:0.85rem; }
+  .ref-real  { color:#a78bfa; font-weight:700; font-size:1rem; font-variant-numeric:tabular-nums; }
+  .day-badge { font-size:0.7rem; padding:2px 8px; border-radius:20px; font-weight:600; white-space:nowrap; }
+  .day-badge.same { background:#e8f5e9; color:#2e7d32; }
+  .day-badge.prev { background:#fff3e0; color:#e65100; }
+  .day-badge.next { background:#e3f2fd; color:#1565c0; }
+{% endblock %}
+
+{% set day_labels = {-1: "previous day", 0: "same day", 1: "next day"} %}
+{% set day_class  = {-1: "prev",          0: "same",    1: "next"} %}
+
 {% block content %}
-<section class="section">
-  <div class="container" style="max-width:800px">
-    <div class="box bc-box">
-      <h1 class="title" style="color:#4a4a8a">Broken Clock Results</h1>
-      <div class="notification {{ notif_class }}">
-        <strong>Offset:</strong> {{ offset_human }} (the broken clock is <strong>{{ clock_status }}</strong>)
+<section class="section" style="padding-top:1.5rem">
+  <div class="container" style="max-width:520px">
+    <div class="bc-card">
+      <h1 class="title is-4 mb-3">Results</h1>
+
+      <span class="offset-badge {{ clock_status }}">{{ offset_human }}</span>
+
+      <div class="meta-grid">
+        <div class="meta-item">
+          <div class="lbl">Actual time</div>
+          <div class="val">{{ real_observed_time }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="lbl">Broken clock</div>
+          <div class="val">{{ wrong_observed_time }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="lbl">Status</div>
+          <div class="val">{{ clock_status }}</div>
+        </div>
       </div>
-      <div class="content">
-        <table class="table is-bordered is-fullwidth">
-          <tbody>
-            <tr><th>Actual time you observed</th><td>{{ real_observed_time }}</td></tr>
-            <tr><th>Broken clock showed</th><td>{{ wrong_observed_time }}</td></tr>
-            <tr><th>Offset</th><td>{{ offset_human }}</td></tr>
-            <tr><th>Clock status</th><td>{{ clock_status }}</td></tr>
-          </tbody>
-        </table>
+
+      <div style="color:#6b7280;font-size:0.8rem;font-weight:600;text-transform:uppercase;
+                  letter-spacing:0.04em;margin-bottom:0.5rem">Reference points</div>
+      {% for r in reference_points %}
+      <div class="ref-row">
+        <span class="ref-wrong">Broken shows <strong style="color:#c4b5fd">{{ r.wrong_time }}</strong></span>
+        <span class="ref-real">{{ r.real_time }}</span>
+        <span class="day-badge {{ day_class[r.day_shift] }}">{{ day_labels[r.day_shift] }}</span>
       </div>
-      <table class="table is-striped is-fullwidth">
-        <thead>
-          <tr>
-            <th>Broken clock shows</th>
-            <th>Actual time</th>
-            <th>Note</th>
-          </tr>
-        </thead>
-        <tbody>
-{% for rp in reference_points %}
-          <tr>
-            <td>{{ rp.wrong_time }}</td>
-            <td>{{ rp.real_time }}</td>
-            <td>{% if rp.day_shift == -1 %}previous day{% elif rp.day_shift == 1 %}next day{% else %}same day{% endif %}</td>
-          </tr>
-{% endfor %}
-        </tbody>
-      </table>
-      <a class="button is-primary bc-btn" href="/broken-clock" style="background:linear-gradient(135deg,#667eea,#764ba2)">&#x2190; Calculate again</a>
+      {% endfor %}
+
+      <a class="button bc-btn mt-4" href="/broken-clock"
+         style="background:linear-gradient(135deg,#667eea,#764ba2)!important">
+        ← Calculate again
+      </a>
     </div>
   </div>
 </section>

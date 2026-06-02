@@ -1,12 +1,30 @@
 {% extends "broken_clock/_layout.html" %}
-{% block title %}Error{% endblock %}
+
+{% block title %}Error — Broken Clock{% endblock %}
+
+{% block extra_style %}
+  body { background: #12121f; }
+  .bc-card {
+    background: #1e1e2e; border-radius: 16px; padding: 2rem;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  }
+  .bc-card .title { color: #f87171; }
+  .err-msg {
+    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
+    border-radius: 10px; padding: 1rem 1.25rem; color: #fca5a5; margin-bottom: 1.5rem;
+  }
+{% endblock %}
+
 {% block content %}
-<section class="section">
-  <div class="container" style="max-width:640px">
-    <div class="box bc-box">
-      <h1 class="title" style="color:#cf3a3a">Error</h1>
-      <div class="notification is-danger">{{ message }}</div>
-      <a class="button is-primary bc-btn" href="/broken-clock" style="background:linear-gradient(135deg,#667eea,#764ba2)">&#x2190; Calculate again</a>
+<section class="section" style="padding-top:1.5rem">
+  <div class="container" style="max-width:520px">
+    <div class="bc-card">
+      <h1 class="title is-4">Error</h1>
+      <div class="err-msg">{{ message }}</div>
+      <a class="button bc-btn" href="/broken-clock"
+         style="background:linear-gradient(135deg,#667eea,#764ba2)!important">
+        ← Calculate again
+      </a>
     </div>
   </div>
 </section>
