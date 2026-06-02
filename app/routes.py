@@ -21,6 +21,15 @@ from app.broken_clock import (
 from app.broken_clock_storage import get_db_path, save_calculation, get_history
 
 
+BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
+BROKEN_CLOCK_RESULT_TEMPLATE = "broken_clock/result.html"
+BROKEN_CLOCK_FORM_TEMPLATE = "broken_clock/form.html"
+BROKEN_CLOCK_HISTORY_TEMPLATE = "broken_clock/history.html"
+TEXT_HTML = "text/html"
+APPLICATION_JSON = "application/json"
+ACCEPT_PREFERENCE = [TEXT_HTML, APPLICATION_JSON]
+
+
 DATA = {
     "authors": [
         {
@@ -61,7 +70,56 @@ def find_author(author_id):
 def make_broken_clock_error_response(message, is_json_request, status_code=400):
     if is_json_request:
         return jsonify({"error": message}), status_code
-    return render_template("broken_clock/error.html", message=message), status_code
+    return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message=message), status_code
+
+
+def _parse_request_data():
+    """Extract and validate input data from a broken-clock request."""
+    if request.is_json:
+        data = request.get_json(silent=True)
+    else:
+        data = request.form.to_dict()
+
+    if not data:
+        return make_broken_clock_error_response(
+            "Request must be JSON or form data", request.is_json, 400
+        ), None, None, None
+
+    if "wrong_observed_time" not in data or not str(data.get("wrong_observed_time")).strip():
+        return make_broken_clock_error_response(
+            "Missing required field: wrong_observed_time", request.is_json, 400
+        ), None, None, None
+
+    wrong_observed_time = data["wrong_observed_time"]
+
+    real_observed_time = data.get("real_observed_time")
+    if not real_observed_time:
+        real_observed_time = datetime.now().strftime("%H:%M")
+
+    raw_target = data.get("target_wrong_times", ["00:00", "07:00", "09:00"])
+    if isinstance(raw_target, str):
+        target_wrong_times = [t.strip() for t in raw_target.split(",") if t.strip()]
+    elif isinstance(raw_target, list):
+        target_wrong_times = raw_target
+    else:
+        target_wrong_times = ["00:00", "07:00", "09:00"]
+
+    for target in target_wrong_times:
+        tp = parse_hhmm(target)
+        if tp is None:
+            return make_broken_clock_error_response(
+                f"Invalid target time: {target}", request.is_json, 400
+            ), None, None, None
+
+    return None, real_observed_time, wrong_observed_time, target_wrong_times
+
+
+def _notification_class(clock_status):
+    if clock_status == "accurate":
+        return "is-success"
+    elif clock_status == "fast":
+        return "is-warning"
+    return "is-danger"
 
 
 def register_routes(app):
@@ -140,7 +198,7 @@ def register_routes(app):
     def broken_clock_form():
         now = datetime.now()
         default_real = now.strftime("%H:%M")
-        return render_template("broken_clock/form.html", default_real=default_real, nav_calculator=" is-active")
+        return render_template(BROKEN_CLOCK_FORM_TEMPLATE, default_real=default_real, nav_calculator=" is-active")
 
     @app.route("/broken-clock/history")
     def broken_clock_history():
@@ -148,18 +206,18 @@ def register_routes(app):
         try:
             history = get_history(db_path)
         except Exception as e:
-            if request.accept_mimetypes.best_match(["text/html", "application/json"]) == "text/html":
-                return render_template("broken_clock/error.html", message=f"Database error: {e}"), 500
+            if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML:
+                return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message=f"Database error: {e}"), 500
             return jsonify({"error": f"Database error: {str(e)}"}), 500
 
-        wants_html = request.accept_mimetypes.best_match(["text/html", "application/json"]) == "text/html"
+        wants_html = request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML
 
         if wants_html:
             display = history[:20]
             for r in display:
                 r["ref_points_display"] = ", ".join(format_compact_ref_point(p) for p in r["reference_points"])
             return render_template(
-                "broken_clock/history.html",
+                BROKEN_CLOCK_HISTORY_TEMPLATE,
                 records=display,
                 total_count=len(history),
                 nav_history=" is-active",
@@ -169,35 +227,9 @@ def register_routes(app):
 
     @app.route("/broken-clock/calculate", methods=["POST"])
     def broken_clock_calculate():
-        if request.is_json:
-            data = request.get_json(silent=True)
-        else:
-            data = request.form.to_dict()
-
-        if not data:
-            return make_broken_clock_error_response("Request must be JSON or form data", request.is_json, 400)
-
-        if "wrong_observed_time" not in data or not str(data.get("wrong_observed_time")).strip():
-            return make_broken_clock_error_response("Missing required field: wrong_observed_time", request.is_json, 400)
-
-        wrong_observed_time = data["wrong_observed_time"]
-
-        real_observed_time = data.get("real_observed_time")
-        if not real_observed_time:
-            real_observed_time = datetime.now().strftime("%H:%M")
-
-        raw_target = data.get("target_wrong_times", ["00:00", "07:00", "09:00"])
-        if isinstance(raw_target, str):
-            target_wrong_times = [t.strip() for t in raw_target.split(",") if t.strip()]
-        elif isinstance(raw_target, list):
-            target_wrong_times = raw_target
-        else:
-            target_wrong_times = ["00:00", "07:00", "09:00"]
-
-        for target in target_wrong_times:
-            tp = parse_hhmm(target)
-            if tp is None:
-                return make_broken_clock_error_response(f"Invalid target time: {target}", request.is_json, 400)
+        err, real_observed_time, wrong_observed_time, target_wrong_times = _parse_request_data()
+        if err:
+            return err
 
         real_p = parse_hhmm(real_observed_time)
         wrong_p = parse_hhmm(wrong_observed_time)
@@ -227,23 +259,17 @@ def register_routes(app):
             if request.is_json:
                 return jsonify({"error": f"Database error: {str(e)}"}), 500
             else:
-                return render_template("broken_clock/error.html", message="Could not save calculation."), 500
+                return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message="Could not save calculation."), 500
 
         if not request.is_json:
-            if clock_status == "accurate":
-                notif_class = "is-success"
-            elif clock_status == "fast":
-                notif_class = "is-warning"
-            else:
-                notif_class = "is-danger"
             return render_template(
-                "broken_clock/result.html",
+                BROKEN_CLOCK_RESULT_TEMPLATE,
                 real_observed_time=real_observed_time,
                 wrong_observed_time=wrong_observed_time,
                 offset_human=offset_human,
                 clock_status=clock_status,
                 reference_points=reference_points,
-                notif_class=notif_class,
+                notif_class=_notification_class(clock_status),
             ), 200
 
         return jsonify({
