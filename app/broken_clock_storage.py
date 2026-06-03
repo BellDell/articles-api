@@ -83,3 +83,15 @@ def get_history(db_path):
                 "reference_points": json.loads(row["reference_points_json"]),
             })
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Backend selection
+# ---------------------------------------------------------------------------
+
+_STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "sqlite") or "sqlite"
+if _STORAGE_BACKEND != "sqlite":
+    raise ValueError(
+        f"Unsupported STORAGE_BACKEND: {_STORAGE_BACKEND!r}. "
+        f"Only 'sqlite' is implemented."
+    )
