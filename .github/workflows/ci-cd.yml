@@ -13,8 +13,8 @@ permissions:
 
 env:
   IMAGE_NAME: ghcr.io/belldell/articles-api
-  ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
-  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  ECR_REGISTRY: "${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+  ECR_REPOSITORY: "${{ vars.ECR_REPOSITORY }}"
 
 jobs:
   test:
@@ -71,13 +71,13 @@ jobs:
 
           curl -f http://localhost:5002/health
 
-   publish:
+  publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
     env:
-      ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
-      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      ECR_REGISTRY: "${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com"
+      ECR_REPOSITORY: "${{ vars.ECR_REPOSITORY }}"
 
     steps:
       - uses: actions/checkout@v4
