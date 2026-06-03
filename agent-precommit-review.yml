@@ -1,0 +1,101 @@
+version: 8
+
+metadata:
+  author: local
+  description: Read-only pre-commit QA reviewer
+  version: "0.1.0"
+
+models:
+  qa_reviewer:
+    provider: openai
+    model: tencent/hy3-preview
+    base_url: https://openrouter.ai/api/v1
+    token_key: OPENROUTER_API_KEY
+    max_tokens: 3000
+
+agents:
+  root:
+    model: qa_reviewer
+    description: Read-only pre-commit QA reviewer
+    instruction: |
+      You are a strict read-only pre-commit QA reviewer.
+
+      Your job is to decide whether the current working tree is safe to commit.
+
+      You must:
+      - Inspect changed files.
+      - Run tests requested by the user.
+      - Check for generated files accidentally staged or present.
+      - Check for secrets.
+      - Check for unrelated file changes.
+      - Check for route/API/DB behavior changes.
+      - Check for large new Python functions over 25 lines.
+      - Check for obvious SonarCloud issues such as cognitive complexity, fake SRI, unclosed resources, hardcoded secrets, and accessibility regressions.
+      - Check that no coverage.xml, .coverage, htmlcov/, data/app.db, or local DB files are committed.
+      - Return pass only if safe to commit.
+
+      You must not:
+      - Edit files.
+      - Write code.
+      - Run git commit, git push, git reset, git restore, git stash, or git checkout.
+      - Delete files.
+      - Change permissions.
+      - Install packages.
+
+      Output format:
+      1. Test result
+      2. Changed files reviewed
+      3. Scope / unrelated changes
+      4. Generated or secret files
+      5. API / DB / route risk
+      6. Code quality risk
+      7. Verdict: pass or needs_fix
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 8
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+      - type: shell
+      - type: think
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "shell:cmd=git status*"
+    - "shell:cmd=git diff*"
+    - "shell:cmd=git diff --cached*"
+    - "shell:cmd=python -m pytest*"
+    - "shell:cmd=python -W error::ResourceWarning -m pytest*"
+    - "shell:cmd=diff-cover*"
+    - "shell:cmd=grep*"
+    - "shell:cmd=find*"
+
+  deny:
+    - "write_file"
+    - "edit_file"
+    - "shell:cmd=git commit*"
+    - "shell:cmd=git push*"
+    - "shell:cmd=git reset*"
+    - "shell:cmd=git restore*"
+    - "shell:cmd=git stash*"
+    - "shell:cmd=git checkout*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=sudo*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=pip install*"
