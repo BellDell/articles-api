@@ -35,21 +35,33 @@ Quick start
   - Builds a container and performs a simple health check
   - On pushes to master it logs in to GitHub Container Registry (GHCR) and pushes images
 
-4. Published GHCR image
+4. Published images
 
-- The workflow is configured to publish images to: ghcr.io/belldell/articles-api
+- The workflow is configured to publish images to:
+  - **GHCR:** ghcr.io/belldell/articles-api
+  - **Amazon ECR:** <aws-account-id>.dkr.ecr.<aws-region>.amazonaws.com/<ecr-repository>
+- Both registries receive `latest` and the Git SHA tag.
+- The image is built once and pushed twice.
+- The ECR infrastructure (repository, IAM role, OIDC) is defined in [`infra/aws/ecr/`](infra/aws/ecr/README.md).
 
 5. Docker Agent Review (manual run)
 
 - There's a separate workflow (.github/workflows/agent-review.yml) you can run manually from the Actions tab named "Docker Agent Review".
 - It uses a local agent definition (agent-review.yml) and requires an OpenAI API key to run.
 
-7. Required GitHub secrets
+7. Required GitHub secrets and variables
 
-- Set the following repository secrets for the workflows to run:
+- Set the following repository **secrets** for the workflows to run:
 
   OPENAI_API_KEY
   SONAR_TOKEN
+
+- Set the following repository **variables** for ECR push:
+
+  AWS_ACCOUNT_ID
+  AWS_REGION
+  ECR_REPOSITORY
+  AWS_ROLE_TO_ASSUME
 
 8. SonarQube Cloud analysis
 
@@ -57,6 +69,25 @@ Quick start
 - Sonar project: BellDell_articles-api (org: belldell)
 - Automatic Analysis in SonarQube Cloud should be disabled — analysis runs through GitHub Actions.
 - Required GitHub secret: SONAR_TOKEN
+
+9. Amazon ECR push
+
+- On pushes to `master`, the workflow pushes the same Docker image to Amazon ECR.
+- The ECR registry URL is built from GitHub Actions variables:
+  `<aws-account-id>.dkr.ecr.<aws-region>.amazonaws.com/<ecr-repository>`
+- The image is built once and pushed twice (GHCR + ECR).
+- Authentication uses GitHub OIDC — no long-lived AWS keys are stored.
+- The IAM role is provisioned via Terraform in [`infra/aws/ecr/`](infra/aws/ecr/README.md).
+- All four values are configured as GitHub repository **variables**:
+
+  | Variable | Description |
+  |---|---|
+  | `AWS_ACCOUNT_ID` | Your 12-digit AWS account ID |
+  | `AWS_REGION` | AWS region for the ECR repository |
+  | `ECR_REPOSITORY` | Name of the ECR repository |
+  | `AWS_ROLE_TO_ASSUME` | ARN of the IAM role for GitHub Actions OIDC |
+
+- This only pushes to ECR. App Runner deployment and database backend are separate follow-up work.
 
 ## Docker Agent workflow
 

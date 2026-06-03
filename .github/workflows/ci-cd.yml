@@ -9,9 +9,12 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 env:
   IMAGE_NAME: ghcr.io/belldell/articles-api
+  ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
 
 jobs:
   test:
@@ -68,13 +71,23 @@ jobs:
 
           curl -f http://localhost:5002/health
 
-  publish:
+   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
+    env:
+      ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate AWS/ECR variables
+        run: |
+          test -n "${{ vars.AWS_REGION }}" || (echo "AWS_REGION variable is missing" && exit 1)
+          test -n "${{ vars.AWS_ACCOUNT_ID }}" || (echo "AWS_ACCOUNT_ID variable is missing" && exit 1)
+          test -n "${{ vars.ECR_REPOSITORY }}" || (echo "ECR_REPOSITORY variable is missing" && exit 1)
+          test -n "${{ vars.AWS_ROLE_TO_ASSUME }}" || (echo "AWS_ROLE_TO_ASSUME variable is missing" && exit 1)
 
       - name: Log in to GHCR
         uses: docker/login-action@v2
@@ -83,14 +96,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image for GHCR
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build image (GHCR + ECR tags)
         run: |
           docker build \
             -t ${{ env.IMAGE_NAME }}:latest \
             -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
             .
 
-      - name: Push image
+      - name: Push to GHCR
         run: |
           docker push ${{ env.IMAGE_NAME }}:latest
           docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Push to Amazon ECR
+        run: |
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}

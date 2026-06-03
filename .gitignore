@@ -33,3 +33,7 @@ Thumbs.db
 coverage.xml
 htmlcov/
 .coverage
+
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.*
