@@ -8,7 +8,7 @@ metadata:
 models:
   qa_reviewer:
     provider: openai
-    model: tencent/hy3-preview
+    model: qwen/qwen3-coder-next
     base_url: https://openrouter.ai/api/v1
     token_key: OPENROUTER_API_KEY
     max_tokens: 3000
