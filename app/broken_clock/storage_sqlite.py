@@ -1,4 +1,4 @@
-"""SQLite storage helpers for Broken Clock Calculator history.
+"""SQLite implementation for Broken Clock Calculator history storage.
 
 This module has no Flask dependency. It manages the APP_DB_PATH,
 database initialization, and CRUD operations for calculation history.
