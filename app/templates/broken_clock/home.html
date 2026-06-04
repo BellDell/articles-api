@@ -1,0 +1,27 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Broken Clock Calculator{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="container" style="max-width:640px">
+    <div class="box bc-box" style="text-align:center;padding:3rem 2rem">
+      <h1 class="title" style="color:#4a4a8a;font-size:2.2rem">&#9200; Welcome</h1>
+      <p class="subtitle is-5" style="margin-bottom:2rem">
+        Choose a tool to get started.
+      </p>
+      <p class="is-size-6" style="margin-bottom:2rem;color:#6a6a8a">
+        The Broken Clock Calculator converts a wrong clock&#8217;s reading to the real time.
+      </p>
+      <div class="buttons is-centered">
+        <a class="button is-large bc-btn" href="/broken-clock"
+           style="padding:1.5rem 2.5rem;font-size:1.15rem">
+          &#128200; Calculator
+        </a>
+        <a class="button is-large bc-btn" href="/broken-clock/history"
+           style="padding:1.5rem 2.5rem;font-size:1.15rem">
+          &#128214; History
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
