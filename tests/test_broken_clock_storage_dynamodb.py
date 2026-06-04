@@ -15,6 +15,11 @@ class FakeTable:
     def put_item(self, Item):
         self.items.append(Item)
 
+    def delete_item(self, Key):
+        self.items = [it for it in self.items
+                      if not (it.get("app_id") == Key.get("app_id")
+                              and it.get("created_at") == Key.get("created_at"))]
+
     def query(self, KeyConditionExpression, ExpressionAttributeValues,
               ScanIndexForward, ExclusiveStartKey=None):
         # Filter by app_id
@@ -121,7 +126,6 @@ def test_dynamodb_get_history_returns_correct_shape(monkeypatch):
     assert len(history) == 1
     record = history[0]
     assert isinstance(record["id"], str)
-    assert isinstance(record["id"], str)
     assert record["real_observed_time"] == "10:00"
     assert record["offset_minutes"] == 60
     assert isinstance(record["target_wrong_times"], list)
@@ -175,3 +179,63 @@ def test_dynamodb_ensure_db_initialized_is_noop(monkeypatch):
     mod = _reload_dynamodb_storage()
     # Should not raise any exception
     mod.ensure_db_initialized(None)
+
+
+def test_dynamodb_get_history_legacy_record_missing_id(monkeypatch):
+    """get_history falls back to created_at for legacy records without id."""
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_dynamodb_storage()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    table = fake_db.Table("test-table")
+    # Legacy item without "id" attribute
+    table.put_item(Item={
+        "app_id": "test-app",
+        "created_at": "2026-01-01T12:00:00Z",
+        "real_observed_time": "10:00",
+        "wrong_observed_time": "11:00",
+        "offset_minutes": 60,
+        "offset_human": "+60 minutes",
+        "clock_status": "fast",
+        "target_wrong_times": json.dumps(["07:00"]),
+        "reference_points": json.dumps([{"wrong_time": "07:00", "real_time": "06:00", "day_shift": 0}]),
+    })
+
+    history = mod.get_history(None)
+    assert len(history) == 1
+    record = history[0]
+    # Should fall back to created_at as id
+    assert record["id"] == "2026-01-01T12:00:00Z"
+    assert record["real_observed_time"] == "10:00"
+
+
+def test_dynamodb_delete_legacy_record_by_created_at(monkeypatch):
+    """delete_history_record can delete legacy records using created_at as id."""
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_dynamodb_storage()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    table = fake_db.Table("test-table")
+    # Legacy item without "id" attribute
+    table.put_item(Item={
+        "app_id": "test-app",
+        "created_at": "2026-06-01T10:00:00Z",
+        "real_observed_time": "09:00",
+        "wrong_observed_time": "10:00",
+        "offset_minutes": 60,
+        "offset_human": "+60 minutes",
+        "clock_status": "fast",
+        "target_wrong_times": json.dumps([]),
+        "reference_points": json.dumps([]),
+    })
+
+    # Delete by created_at (the fallback id)
+    result = mod.delete_history_record("2026-06-01T10:00:00Z", None)
+    assert result is True
+    assert len(table.items) == 0

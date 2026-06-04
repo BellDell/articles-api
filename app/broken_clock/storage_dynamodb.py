@@ -70,7 +70,7 @@ def get_history(_db_path):
     rows = []
     for item in items:
         rows.append({
-            "id": item["id"],
+            "id": item.get("id", item["created_at"]),
             "created_at": item["created_at"],
             "real_observed_time": item["real_observed_time"],
             "wrong_observed_time": item["wrong_observed_time"],
@@ -91,7 +91,8 @@ def delete_history_record(record_id, _db_path):
 
     target = None
     for item in items:
-        if str(item["id"]) == str(record_id):
+        item_id = item.get("id", item["created_at"])
+        if str(item_id) == str(record_id):
             target = item
             break
 
