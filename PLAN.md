@@ -1,97 +1,94 @@
-# Plan: Step 3 — Add DynamoDB history storage backend
+# Plan: Step 4 — AWS App Runner + DynamoDB Terraform deployment
 
 ## 1. Goal
 
-Add a DynamoDB implementation of Broken Clock history storage alongside the existing SQLite backend. The storage facade dispatches to the correct backend based on `STORAGE_BACKEND` env var.
+Provision the AWS infrastructure needed to deploy the application on AWS App Runner with DynamoDB as the history storage backend. This is the runtime deployment for the AWS environment (Kubernetes/ArgoCD remains unchanged).
 
-## 2. Why this step is needed
+## 2. Architecture
 
-AWS App Runner does not provide persistent local filesystem storage, so SQLite cannot be used there. DynamoDB is the natural serverless alternative within AWS. Adding it now keeps the App Runner deployment follow-up independent of storage changes.
+```
+GitHub Actions (CI/CD)
+  └── pushes Docker image to ECR
+        └── App Runner service pulls image from ECR
+              └── App Runner containers run the Flask app
+                    └── App Runner uses DynamoDB for history storage
+```
+
+- App Runner pulls the container image from the existing ECR repository.
+- The app runtime sets `STORAGE_BACKEND=dynamodb`.
+- DynamoDB stores Broken Clock calculation history.
+- SQLite continues to be used by Kubernetes/ArgoCD deployments.
 
 ## 3. In scope
 
-- Add `app/broken_clock/storage_dynamodb.py` with DynamoDB implementation.
-- Add `boto3` to production dependencies.
-- Update `app/broken_clock/storage.py` to dispatch to `storage_dynamodb` when `STORAGE_BACKEND=dynamodb`.
-- Keep `STORAGE_BACKEND=sqlite` as default.
-- Keep all four public facade function names with the same signatures.
-- Preserve all SQLite behavior unchanged.
-- Preserve `APP_DB_PATH` behavior for SQLite path.
-- Tests use mocks/stubs for boto3 — no real AWS calls.
+- Add Terraform directory `infra/aws/app-runner/`.
+- Create DynamoDB table for Broken Clock history.
+- Create IAM roles and policies for App Runner.
+- Create App Runner service wired to the ECR image.
 
 ## 4. Out of scope
 
-- No App Runner deployment in this step.
-- No DynamoDB Terraform in this step.
-- No real AWS calls in tests (mocked).
-- No data migration between backends.
-- No route URL or JSON response shape changes.
-- No UI changes.
-- No ArgoCD or Docker or GitHub Actions changes.
-- No auth or user_id.
+- No app code changes.
+- No route or JSON response shape changes.
+- No GitHub Actions workflow changes in this step.
+- No custom domain or TLS certificate.
+- No VPC connector or WAF.
+- No authentication.
+- No data migration from SQLite.
+- No production traffic cutover.
 
-## 5. DynamoDB data model
+## 5. Terraform resources
 
-Table: `articles-api-broken-clock-history` (configured via `DYNAMODB_TABLE` env var)
+| Resource | Purpose |
+|---|---|
+| `aws_dynamodb_table` | Broken Clock history storage — partition key `app_id` (string), sort key `created_at` (string), billing mode PAY_PER_REQUEST |
+| `aws_iam_role.app_runner_access` | Grants App Runner access to pull images from ECR |
+| `aws_iam_role.app_runner_instance` | Grants the running App Runner container access to DynamoDB |
+| `aws_iam_role_policy_attachment` (managed: `AmazonEC2ContainerRegistryReadOnly`) | Attaches ECR read-only policy to the access role |
+| `aws_iam_role_policy.app_runner_instance` (inline) | Least-privilege policy for DynamoDB PutItem, Query, DescribeTable on the table ARN |
+| `aws_apprunner_service` | The App Runner service configured with the ECR image, container port 5000, health check `/health`, and environment variables |
 
-| Attribute | Type | Key | Description |
-|---|---|---|---|
-| `app_id` | String (S) | Partition key | Default `articles-api`, set via env var |
-| `created_at` | String (S) | Sort key | UTC ISO-8601 timestamp |
-| `real_observed_time` | String (S) | — | HH:MM |
-| `wrong_observed_time` | String (S) | — | HH:MM |
-| `offset_minutes` | Number (N) | — | Signed integer |
-| `offset_human` | String (S) | — | e.g. "+60 minutes" |
-| `clock_status` | String (S) | — | "fast", "slow", or "accurate" |
-| `target_wrong_times` | String (S) | — | JSON array serialized |
-| `reference_points` | String (S) | — | JSON array serialized |
+Variables: `aws_region`, `aws_account_id`, `ecr_repository_name` (default `articles-api`), `image_tag` (default `latest`), `dynamodb_table_name` (default `articles-api-broken-clock-history`), `app_id` (default `articles-api`).
 
-The history response decodes `target_wrong_times` and `reference_points` from JSON strings to arrays — same shape as the SQLite backend.
+## 6. IAM / security rules
 
-Table creation belongs to Terraform, not app runtime. `ensure_db_initialized` is a no-op for DynamoDB.
+### App Runner access role (ECR pull)
 
-## 6. Module responsibilities
+- Trust policy allows `tasks.apprunner.amazonaws.com` to assume the role.
+- Attached managed policy: `AmazonEC2ContainerRegistryReadOnly` — grants `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, `ecr:BatchCheckLayerAvailability`.
 
-### `app/broken_clock/storage_dynamodb.py` (new)
+### App Runner instance role (DynamoDB write/query)
 
-- `get_db_path()` — returns `None` (or empty string) to satisfy the facade signature.
-- `ensure_db_initialized(db_path)` — no-op (table created by Terraform).
-- `save_calculation(db_path, ...)` — writes an item to DynamoDB.
-- `get_history(db_path)` — scans DynamoDB with the partition key, sorts descending by sort key, returns same dict shape as SQLite.
+- Trust policy allows `tasks.apprunner.amazonaws.com`.
+- Inline policy scoped to the specific DynamoDB table ARN:
+  - `dynamodb:PutItem`
+  - `dynamodb:Query`
+  - `dynamodb:DescribeTable`
+- No `dynamodb:Scan` on the table (the app uses Query with partition key).
+- No `dynamodb:*` on any resource — least privilege.
 
-### `app/broken_clock/storage.py` (updated)
+## 7. App Runner runtime config
 
-- Reads `STORAGE_BACKEND` env var.
-- If `"dynamodb"`, imports from `app.broken_clock.storage_dynamodb` and delegates.
-- Keeps `"sqlite"` as the default.
-- `_validate_backend()` updated to accept both `"sqlite"` and `"dynamodb"`.
+| Setting | Value |
+|---|---|
+| Source | ECR, repository from `ecr_repository_name`, tag from `image_tag` |
+| Port | 5000 |
+| Health check | `/health` |
+| CPU/Memory | 1 vCPU / 2 GB (configurable via variable) |
+| Auto-deployment | Enabled on ECR push |
+| Environment variables | `STORAGE_BACKEND=dynamodb`, `DYNAMODB_TABLE=<table_name>`, `APP_ID=articles-api`, `AWS_REGION=<region>` |
 
-### `app/broken_clock/storage_sqlite.py` (unchanged)
+## 8. Validation strategy
 
-- All existing SQLite code preserved.
-
-## 7. Backward compatibility rules
-
-- `STORAGE_BACKEND` unset, empty, or `"sqlite"` — SQLite behavior is byte-for-byte identical.
-- `STORAGE_BACKEND=dynamodb` — all four public facade functions work with DynamoDB.
-- Unsupported backend value — raises `ValueError` as before.
-- `APP_DB_PATH` is only used by SQLite; DynamoDB ignores it.
-- All 41 existing tests pass without modification (they use SQLite/`tmp_path`).
-
-## 8. Test strategy
-
-- All 41 existing SQLite tests pass unchanged.
-- New tests in `tests/test_broken_clock_storage_dynamodb.py`:
-  - Mock boto3 table resource.
-  - Test `save_calculation` writes correct item shape.
-  - Test `get_history` returns records sorted by created_at descending.
-  - Test `get_history` decodes JSON string fields into arrays.
-  - Test `get_db_path` returns `None`.
-  - Test `ensure_db_initialized` is a no-op.
-- All tests use monkeypatch for env vars and mocks for AWS. No real AWS calls.
+- `terraform fmt` and `terraform validate` on the new directory.
+- No real `terraform apply` in this step.
+- App code tests (47 existing) remain unchanged.
+- After apply, verify App Runner service URL returns `/health` with `{"status": "ok"}`, and `/broken-clock/history` works with DynamoDB backend.
 
 ## 9. Follow-up steps
 
-- Add DynamoDB table Terraform under `infra/aws/dynamodb/`.
-- Add App Runner deployment configuration.
-- Add `boto3` to Docker image (already available in CI/pip requirements).
+- Add GitHub Actions `deploy` job that runs `terraform apply` on `infra/aws/app-runner/`.
+- Add custom domain and TLS.
+- Add VPC connector for RDS or other private resources.
+- Add WAF for production traffic.
+- Add monitoring and alarms.
