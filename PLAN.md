@@ -1,88 +1,67 @@
-# Plan: DynamoDB backend for Water Meter readings
+# Plan: Water Meter UI/UX polish
 
 ## 1. Goal
 
-Add an optional DynamoDB storage backend for Water Meter readings alongside the existing SQLite backend. Water Meter records are stored in the existing shared App Runner DynamoDB table, separated from Broken Clock records via an `entity_type` attribute.
+Improve the home page and Water Meter pages so both tools are presented as equals, with consistent dark-theme styling, clear labels, and better discoverability.
 
-## 2. Why no Terraform in this step
+## 2. Problems
 
-The existing App Runner DynamoDB table already supports both entity types. No new DynamoDB table, no GSI, and no key schema changes are needed. Water Meter records coexist with Broken Clock records using the `entity_type` attribute. Terraform updates (permissions, if needed) can be a separate follow-up.
+1. **Home page**: Shows Broken Clock Calculator and History as large buttons; Water Meter is a small text link at the bottom.
+2. **Water Meter form**: Uses the light Bulma theme (white background, dark text) instead of the dark theme used by Broken Clock pages.
+3. **Labels**: Low contrast on light theme — hard to read.
+4. **Navigation**: No separate Water Meter navbar link (only recently added in code).
+5. **Overall feel**: Water Meter looks unfinished compared to Broken Clock.
 
 ## 3. In scope
 
-- Add `app/water_meter/storage_dynamodb.py`.
-- Update `app/water_meter/storage.py` to dispatch by `STORAGE_BACKEND` (default `sqlite`, supports `dynamodb`).
-- Water Meter uses the same `DYNAMODB_TABLE` env var as Broken Clock.
-- Water Meter uses shared helpers from `app/core/storage/dynamodb.py`.
-- Water Meter records include `entity_type = "water_meter"`.
-- `save_reading()` generates a stable UUID id.
-- `get_readings()` queries by `app_id` and filters items where `entity_type == "water_meter"`.
-- Returned reading shape matches the SQLite backend.
-- Tests mock/stub boto3 — no real AWS calls.
+1. Home page: present both tools as equal cards with large buttons.
+2. Water Meter form: dark theme, same card/box style as Broken Clock pages.
+3. Water Meter history: verify consistency with dark theme (already uses dark theme).
+4. Preserve all existing route URLs, form field names, and JSON response shapes.
 
 ## 4. Out of scope
 
-- No Terraform changes.
-- No App Runner or GitHub Actions changes.
-- No new DynamoDB table or key schema changes.
-- No GSI.
-- No migration for existing SQLite data.
-- No auth or user_id.
-- No edit/delete readings.
-- No charts.
-- No changes to Broken Clock behavior.
+- No route changes.
+- No storage or DynamoDB changes.
+- No SQLite changes.
+- No Terraform, Docker, or GitHub Actions changes.
+- No auth, charts, edit/delete, or new backend features.
 
-## 5. DynamoDB single-table design
+## 5. UI/UX target
 
-| Attribute | Value (Water Meter) | Value (Broken Clock) |
-|---|---|---|
-| `app_id` (partition key) | Environment `APP_ID` (default `articles-api`) | Same |
-| `created_at` (sort key) | UTC ISO-8601 | UTC ISO-8601 |
-| `entity_type` | `"water_meter"` | `"broken_clock"` (new records); legacy records may be absent |
-| `id` | UUID hex (stable) | UUID hex (stable) |
-| Feature fields | `reading_date`, `meter_name`, `reading_value`, `unit`, `notes` | Calculation-specific fields |
+### Home page
 
-Both entity types live in the same table, share the same primary key schema, and are differentiated by `entity_type`. This keeps the existing Terraform and App Runner configuration unchanged.
+- Two equal cards side by side (or stacked on mobile).
+- Card 1: "Broken Clock Calculator" with description and "Open Calculator" button.
+- Card 2: "Water Meter Readings" with description and "Open Water Meter" button.
+- Remove the small text link at the bottom.
 
-Records without `entity_type` are treated as `broken_clock` (legacy support).
+### Water Meter form
 
-## 6. Backend responsibilities
+- Same card style as Broken Clock (`bc-box`, dark background or white with dark text depending on the active theme direction — keep consistent with the broader app).
+- Improved label contrast (darker text on light cards, or lighter text on dark).
+- Helper text below fields (already present).
+- Button: "Add reading".
+- Secondary button/link: "View history".
 
-### `app/water_meter/storage.py` (updated)
+### Water Meter history
 
-- Reads `STORAGE_BACKEND` env var.
-- Defaults to SQLite.
-- Dispatches `save_reading()` and `get_readings()` to the appropriate backend.
-- Unsupported backends raise `ValueError`.
+- Already uses dark cards — verify and keep consistent.
+- Add a "Add reading" button if missing.
 
-### `app/water_meter/storage_dynamodb.py` (new)
+## 6. Compatibility rules
 
-- `get_db_path()` — returns `None` (no file path needed).
-- `ensure_db_initialized(db_path)` — no-op (table created by Terraform).
-- `save_reading(db_path, reading_value, reading_date, meter_name, unit, notes)` — writes an item with `entity_type = "water_meter"`, stable UUID id, and all reading fields.
-- `get_readings(db_path)` — queries all items for `app_id` via shared helper, filters to items where `entity_type == "water_meter"`, returns newest first with same shape as SQLite.
+- Route URLs unchanged: `/`, `/water-meter`, `/water-meter/readings`, `/water-meter/history`.
+- HTML form field names unchanged: `reading_date`, `meter_name`, `reading_value`, `unit`, `notes`.
+- JSON response shapes unchanged.
+- All existing tests pass without modification.
 
-## 7. Backward compatibility rules
+## 7. Test strategy
 
-- `STORAGE_BACKEND` unset, empty, or `"sqlite"` — SQLite behavior is identical.
-- `STORAGE_BACKEND=dynamodb` — Water Meter uses DynamoDB.
-- Unsupported backend raises `ValueError`.
-- Broken Clock behavior unchanged.
-- Legacy Broken Clock records without `entity_type` are not affected.
+- All existing 92 tests pass without modification.
+- If new links or text are added to the home page, update `test_home_page_contains_*` tests only if they fail.
+- Keep tests behavior-focused — check for important text/links, not exact HTML structure.
 
-## 8. Test strategy
+## 8. Follow-up steps
 
-- All 85 existing tests pass unchanged.
-- New DynamoDB storage tests (mocked boto3, no real AWS):
-  - `save_reading` writes item with `entity_type="water_meter"`.
-  - `get_readings` returns only water_meter items (filters out broken_clock items).
-  - `get_readings` returns newest first.
-  - `get_readings` returns compatible shape (same fields as SQLite).
-  - Missing `DYNAMODB_TABLE` raises clear `ValueError`.
-- No real AWS calls.
-
-## 9. Follow-up steps
-
-- Add Terraform DynamoDB table updates if IAM permissions need broadening (likely already covered by existing policy).
-- Add edit/delete for Water Meter readings.
-- Add usage deltas and charts.
+- None — this is a pure UI polish step.
