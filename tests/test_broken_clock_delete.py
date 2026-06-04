@@ -52,7 +52,7 @@ class FakeTable:
 
     def query(self, KeyConditionExpression, ExpressionAttributeValues,
               ScanIndexForward, ExclusiveStartKey=None):
-        expected_aid = ExpressionAttributeValues.get(":aid")
+        expected_aid = ExpressionAttributeValues.get(":hv")
         matching = [it for it in self.items if it.get("app_id") == expected_aid]
         matching.sort(key=lambda it: it.get("created_at", ""), reverse=True)
         return {"Items": matching}
