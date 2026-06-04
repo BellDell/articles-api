@@ -1,67 +1,51 @@
-# Plan: Water Meter UI/UX polish
+# Plan: Water Meter reading date input UX
 
 ## 1. Goal
 
-Improve the home page and Water Meter pages so both tools are presented as equals, with consistent dark-theme styling, clear labels, and better discoverability.
+Improve the Water Meter reading date field by switching to a browser-native `<input type="date">` and defaulting to today's date on the form page.
 
-## 2. Problems
+## 2. In scope
 
-1. **Home page**: Shows Broken Clock Calculator and History as large buttons; Water Meter is a small text link at the bottom.
-2. **Water Meter form**: Uses the light Bulma theme (white background, dark text) instead of the dark theme used by Broken Clock pages.
-3. **Labels**: Low contrast on light theme — hard to read.
-4. **Navigation**: No separate Water Meter navbar link (only recently added in code).
-5. **Overall feel**: Water Meter looks unfinished compared to Broken Clock.
+- Change the date input in `app/templates/water_meter/form.html` from `type="text"` to `type="date"`.
+- Keep the field `name="reading_date"` unchanged.
+- Pass a `default_date` template variable from the route handler (`GET /water-meter`) set to today's date in `YYYY-MM-DD` format.
+- Use the default as the input's `value` when no error-preserved value is present.
+- When an error redirect returns query params, the previously submitted date takes precedence (current behavior).
+- Update `test_water_meter_routes.py` or `test_water_meter_domain.py` only if tests fail.
+- Existing validation still expects `YYYY-MM-DD` — the browser always submits this format from `type="date"`.
 
-## 3. In scope
+## 3. Out of scope
 
-1. Home page: present both tools as equal cards with large buttons.
-2. Water Meter form: dark theme, same card/box style as Broken Clock pages.
-3. Water Meter history: verify consistency with dark theme (already uses dark theme).
-4. Preserve all existing route URLs, form field names, and JSON response shapes.
+- No JavaScript date picker library (browser-native only).
+- No storage changes.
+- No route URL changes (still `GET /water-meter`).
+- No JSON response shape changes.
+- No DynamoDB or SQLite changes.
+- No Terraform, Docker, or GitHub Actions.
+- No timezone or user locale handling.
+- No edit/delete/charts.
 
-## 4. Out of scope
+## 4. UI behavior
 
-- No route changes.
-- No storage or DynamoDB changes.
-- No SQLite changes.
-- No Terraform, Docker, or GitHub Actions changes.
-- No auth, charts, edit/delete, or new backend features.
+- Text input renders a browser-native date picker on supporting browsers.
+- On desktop browsers without date picker support, a plain text input appears (graceful degradation).
+- The default date is today in `YYYY-MM-DD` format.
+- If the user navigated back via a validation error with query params, the submitted date is used instead of today's default.
+- Manual `YYYY-MM-DD` entry still works.
 
-## 5. UI/UX target
+## 5. Test strategy
 
-### Home page
-
-- Two equal cards side by side (or stacked on mobile).
-- Card 1: "Broken Clock Calculator" with description and "Open Calculator" button.
-- Card 2: "Water Meter Readings" with description and "Open Water Meter" button.
-- Remove the small text link at the bottom.
-
-### Water Meter form
-
-- Same card style as Broken Clock (`bc-box`, dark background or white with dark text depending on the active theme direction — keep consistent with the broader app).
-- Improved label contrast (darker text on light cards, or lighter text on dark).
-- Helper text below fields (already present).
-- Button: "Add reading".
-- Secondary button/link: "View history".
-
-### Water Meter history
-
-- Already uses dark cards — verify and keep consistent.
-- Add a "Add reading" button if missing.
+- All 92 existing tests pass.
+- Two tests may need small updates:
+  - `test_form_returns_200` — verify the response text contains today's date or does not break.
+  - A new or updated test verifying `type="date"` attribute is present in the rendered HTML (optional — avoids brittle HTML assertions).
+- No test changes strictly required — all existing route tests use form POST, which is unchanged.
 
 ## 6. Compatibility rules
 
-- Route URLs unchanged: `/`, `/water-meter`, `/water-meter/readings`, `/water-meter/history`.
-- HTML form field names unchanged: `reading_date`, `meter_name`, `reading_value`, `unit`, `notes`.
-- JSON response shapes unchanged.
-- All existing tests pass without modification.
-
-## 7. Test strategy
-
-- All existing 92 tests pass without modification.
-- If new links or text are added to the home page, update `test_home_page_contains_*` tests only if they fail.
-- Keep tests behavior-focused — check for important text/links, not exact HTML structure.
-
-## 8. Follow-up steps
-
-- None — this is a pure UI polish step.
+- Route URL unchanged: `GET /water-meter`.
+- Form `action` unchanged: `/water-meter/readings`.
+- Form field `name` unchanged: `reading_date`.
+- Validation unchanged: `YYYY-MM-DD`.
+- POST handler unchanged: reads `reading_date` from form data.
+- Error redirect unchanged: preserves submitted value via query param.
