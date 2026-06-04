@@ -196,10 +196,14 @@ def get_article(article_id):
     return jsonify({"error": "Article not found"}), 404
 
 
+def home():
+    return render_template("broken_clock/home.html", active_page="home")
+
+
 def broken_clock_form():
     now = datetime.now()
     default_real = now.strftime("%H:%M")
-    return render_template(BROKEN_CLOCK_FORM_TEMPLATE, default_real=default_real, nav_calculator=" is-active")
+    return render_template(BROKEN_CLOCK_FORM_TEMPLATE, default_real=default_real, active_page="calculator")
 
 
 def broken_clock_history():
@@ -221,7 +225,7 @@ def broken_clock_history():
             BROKEN_CLOCK_HISTORY_TEMPLATE,
             records=display,
             total_count=len(history),
-            nav_history=" is-active",
+            active_page="history",
         ), 200
 
     return jsonify(history), 200
@@ -285,6 +289,7 @@ def broken_clock_calculate():
 
 
 def register_routes(app):
+    app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/authors", endpoint="get_authors", view_func=get_authors)
     app.add_url_rule(
         "/articles", endpoint="get_articles", view_func=get_articles,

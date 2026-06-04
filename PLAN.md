@@ -1,94 +1,53 @@
-# Plan: Step 4 — AWS App Runner + DynamoDB Terraform deployment
+# Plan: Add home page at GET /
 
 ## 1. Goal
 
-Provision the AWS infrastructure needed to deploy the application on AWS App Runner with DynamoDB as the history storage backend. This is the runtime deployment for the AWS environment (Kubernetes/ArgoCD remains unchanged).
+Add a simple home page at `GET /` with links to the Broken Clock Calculator and its history, making the root URL useful instead of returning 404.
 
-## 2. Architecture
+## 2. In scope
 
-```
-GitHub Actions (CI/CD)
-  └── pushes Docker image to ECR
-        └── App Runner service pulls image from ECR
-              └── App Runner containers run the Flask app
-                    └── App Runner uses DynamoDB for history storage
-```
+- Add `GET /` route mapped to a new handler.
+- Create `app/templates/broken_clock/home.html` template.
+- Add a "Home" link to the existing navbar in `_layout.html`, active when on the home page.
+- Wire the new route via `register_routes` in `app/routes.py`.
 
-- App Runner pulls the container image from the existing ECR repository.
-- The app runtime sets `STORAGE_BACKEND=dynamodb`.
-- DynamoDB stores Broken Clock calculation history.
-- SQLite continues to be used by Kubernetes/ArgoCD deployments.
+## 3. Out of scope
 
-## 3. In scope
+- No storage or database changes.
+- No DynamoDB changes.
+- No delete history or other new features.
+- No auth or user_id.
+- No changes to existing route URLs (`/broken-clock`, `/broken-clock/calculate`, `/broken-clock/history`).
+- No JSON API changes.
+- No Terraform, GitHub Actions, or Docker changes.
+- No changes to existing templates (`form.html`, `result.html`, `history.html`, `error.html`).
 
-- Add Terraform directory `infra/aws/app-runner/`.
-- Create DynamoDB table for Broken Clock history.
-- Create IAM roles and policies for App Runner.
-- Create App Runner service wired to the ECR image.
+## 4. Template and navigation changes
 
-## 4. Out of scope
+### New template: `app/templates/broken_clock/home.html`
 
-- No app code changes.
-- No route or JSON response shape changes.
-- No GitHub Actions workflow changes in this step.
-- No custom domain or TLS certificate.
-- No VPC connector or WAF.
-- No authentication.
-- No data migration from SQLite.
-- No production traffic cutover.
+- Extends `_layout.html`.
+- Title: "Home" or "Broken Clock App".
+- Content: a brief welcome heading and two buttons or cards linking to:
+  - `/broken-clock` — "Calculator"
+  - `/broken-clock/history` — "History"
+- Simple Bulma styling consistent with existing pages.
 
-## 5. Terraform resources
+### Navigation update: `app/templates/broken_clock/_layout.html`
 
-| Resource | Purpose |
-|---|---|
-| `aws_dynamodb_table` | Broken Clock history storage — partition key `app_id` (string), sort key `created_at` (string), billing mode PAY_PER_REQUEST |
-| `aws_iam_role.app_runner_access` | Grants App Runner access to pull images from ECR |
-| `aws_iam_role.app_runner_instance` | Grants the running App Runner container access to DynamoDB |
-| `aws_iam_role_policy_attachment` (managed: `AmazonEC2ContainerRegistryReadOnly`) | Attaches ECR read-only policy to the access role |
-| `aws_iam_role_policy.app_runner_instance` (inline) | Least-privilege policy for DynamoDB PutItem, Query, DescribeTable on the table ARN |
-| `aws_apprunner_service` | The App Runner service configured with the ECR image, container port 5000, health check `/health`, and environment variables |
+- Add a "Home" navbar link pointing to `/`.
+- The link should accept the same `nav_active_home` pattern used by Calculator and History links (via a template variable or block).
 
-Variables: `aws_region`, `aws_account_id`, `ecr_repository_name` (default `articles-api`), `image_tag` (default `latest`), `dynamodb_table_name` (default `articles-api-broken-clock-history`), `app_id` (default `articles-api`).
+## 5. Test strategy
 
-## 6. IAM / security rules
+- Existing tests continue to pass.
+- Add tests (in a new or existing test file):
+  - `test_home_page_returns_200` — `GET /` returns 200.
+  - `test_home_page_contains_calculator_link` — page contains a link or text pointing to `/broken-clock`.
+  - `test_home_page_contains_history_link` — page contains a link or text pointing to `/broken-clock/history`.
+- Keep HTML assertions simple — check for important text/links, not exact structure.
 
-### App Runner access role (ECR pull)
+## 6. Follow-up steps
 
-- Trust policy allows `tasks.apprunner.amazonaws.com` to assume the role.
-- Attached managed policy: `AmazonEC2ContainerRegistryReadOnly` — grants `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, `ecr:BatchCheckLayerAvailability`.
-
-### App Runner instance role (DynamoDB write/query)
-
-- Trust policy allows `tasks.apprunner.amazonaws.com`.
-- Inline policy scoped to the specific DynamoDB table ARN:
-  - `dynamodb:PutItem`
-  - `dynamodb:Query`
-  - `dynamodb:DescribeTable`
-- No `dynamodb:Scan` on the table (the app uses Query with partition key).
-- No `dynamodb:*` on any resource — least privilege.
-
-## 7. App Runner runtime config
-
-| Setting | Value |
-|---|---|
-| Source | ECR, repository from `ecr_repository_name`, tag from `image_tag` |
-| Port | 5000 |
-| Health check | `/health` |
-| CPU/Memory | 1 vCPU / 2 GB (configurable via variable) |
-| Auto-deployment | Enabled on ECR push |
-| Environment variables | `STORAGE_BACKEND=dynamodb`, `DYNAMODB_TABLE=<table_name>`, `APP_ID=articles-api`, `AWS_REGION=<region>` |
-
-## 8. Validation strategy
-
-- `terraform fmt` and `terraform validate` on the new directory.
-- No real `terraform apply` in this step.
-- App code tests (47 existing) remain unchanged.
-- After apply, verify App Runner service URL returns `/health` with `{"status": "ok"}`, and `/broken-clock/history` works with DynamoDB backend.
-
-## 9. Follow-up steps
-
-- Add GitHub Actions `deploy` job that runs `terraform apply` on `infra/aws/app-runner/`.
-- Add custom domain and TLS.
-- Add VPC connector for RDS or other private resources.
-- Add WAF for production traffic.
-- Add monitoring and alarms.
+- None immediately; the home page is a small standalone addition.
+- If more pages are added later, the home page can be expanded with a dashboard or index of available tools.
