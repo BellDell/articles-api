@@ -75,3 +75,20 @@ def get_readings(_db_path):
         })
 
     return rows
+
+
+def get_meter_names(_db_path):
+    """Return sorted distinct meter names from Water Meter items only."""
+    app_id = _app_id()
+    table = _table()
+    items = query_all_items(table, "app_id", app_id)
+
+    names = set()
+    for item in items:
+        if item.get("entity_type") != ENTITY_TYPE:
+            continue
+        name = item.get("meter_name", "").strip()
+        if name:
+            names.add(name)
+
+    return sorted(names)

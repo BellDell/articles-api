@@ -23,7 +23,13 @@
           <label class="label bc-label-light" for="meter_name">Meter name</label>
           <div class="control">
             <input id="meter_name" name="meter_name" class="input bc-input" type="text"
+                   list="meter-name-options"
                    placeholder="main" value="{{ request.args.get('meter_name', '') }}" autocomplete="off">
+            <datalist id="meter-name-options">
+              {% for name in meter_names %}
+              <option value="{{ name }}">
+              {% endfor %}
+            </datalist>
           </div>
           <p class="help bc-help">Defaults to "main" if left blank.</p>
         </div>

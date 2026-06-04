@@ -1,51 +1,80 @@
-# Plan: Water Meter reading date input UX
+# Plan: Water Meter meter name suggestions
 
 ## 1. Goal
 
-Improve the Water Meter reading date field by switching to a browser-native `<input type="date">` and defaulting to today's date on the form page.
+Improve the Water Meter form by suggesting existing meter names via an HTML `<datalist>` while still allowing the user to type a new name. The suggestions are loaded from stored data (SQLite or DynamoDB).
 
-## 2. In scope
+## 2. UX behavior
 
-- Change the date input in `app/templates/water_meter/form.html` from `type="text"` to `type="date"`.
-- Keep the field `name="reading_date"` unchanged.
-- Pass a `default_date` template variable from the route handler (`GET /water-meter`) set to today's date in `YYYY-MM-DD` format.
-- Use the default as the input's `value` when no error-preserved value is present.
-- When an error redirect returns query params, the previously submitted date takes precedence (current behavior).
-- Update `test_water_meter_routes.py` or `test_water_meter_domain.py` only if tests fail.
-- Existing validation still expects `YYYY-MM-DD` — the browser always submits this format from `type="date"`.
+- The meter name input uses an HTML `<input>` with an associated `<datalist>` element.
+- The datalist is populated with distinct `meter_name` values from existing readings.
+- The user can pick a name from the suggestions or type a new one.
+- If the field is left blank, it still defaults to `"main"` on submission (unchanged).
+- The input `name` attribute remains `meter_name` so POST handling is unchanged.
 
-## 3. Out of scope
+## 3. In scope
 
-- No JavaScript date picker library (browser-native only).
-- No storage changes.
-- No route URL changes (still `GET /water-meter`).
-- No JSON response shape changes.
-- No DynamoDB or SQLite changes.
-- No Terraform, Docker, or GitHub Actions.
-- No timezone or user locale handling.
-- No edit/delete/charts.
+- Add `get_meter_names()` to the Water Meter storage facade.
+- **No new JSON endpoint** — meter names are rendered into the HTML template only.
+- Existing JSON response shapes unchanged.
+- Existing POST /water-meter/readings behavior unchanged.
+- Add SQLite implementation: query distinct `meter_name` values from `water_meter_readings`.
+- Add DynamoDB implementation: query items for `app_id`, filter `entity_type="water_meter"`, collect distinct `meter_name` values.
+- Update `GET /water-meter` route to pass meter names to the template.
+- Update the form template to render an `<input>` with `<datalist>`.
+- Add tests for storage (both SQLite and DynamoDB), route, and template.
 
-## 4. UI behavior
+## 4. Out of scope
 
-- Text input renders a browser-native date picker on supporting browsers.
-- On desktop browsers without date picker support, a plain text input appears (graceful degradation).
-- The default date is today in `YYYY-MM-DD` format.
-- If the user navigated back via a validation error with query params, the submitted date is used instead of today's default.
-- Manual `YYYY-MM-DD` entry still works.
+- No delete or edit readings.
+- No storage schema changes.
+- No DynamoDB key schema changes.
+- No Terraform, Docker, or GitHub Actions changes.
+- No auth, charts, or user_id.
+- No changes to Broken Clock behavior.
 
-## 5. Test strategy
+## 5. Storage responsibilities
 
-- All 92 existing tests pass.
-- Two tests may need small updates:
-  - `test_form_returns_200` — verify the response text contains today's date or does not break.
-  - A new or updated test verifying `type="date"` attribute is present in the rendered HTML (optional — avoids brittle HTML assertions).
-- No test changes strictly required — all existing route tests use form POST, which is unchanged.
+### Facade (`app/water_meter/storage.py`)
 
-## 6. Compatibility rules
+- Add `get_meter_names(db_path)` dispatching by `STORAGE_BACKEND`.
 
-- Route URL unchanged: `GET /water-meter`.
-- Form `action` unchanged: `/water-meter/readings`.
-- Form field `name` unchanged: `reading_date`.
-- Validation unchanged: `YYYY-MM-DD`.
-- POST handler unchanged: reads `reading_date` from form data.
-- Error redirect unchanged: preserves submitted value via query param.
+### SQLite (`app/water_meter/storage_sqlite.py`)
+
+- Query: `SELECT DISTINCT meter_name FROM water_meter_readings ORDER BY meter_name`.
+- Return a list of strings.
+
+### DynamoDB (`app/water_meter/storage_dynamodb.py`)
+
+- Use **Query** by `app_id` (the DynamoDB partition key) — never Scan.
+- Filter items where `entity_type="water_meter"` client-side after Query.
+- Collect distinct `meter_name` values and return them sorted alphabetically.
+- Do not change the existing key schema (`app_id` partition key, `created_at` sort key).
+- Do not add a GSI or Terraform change.
+
+## 6. Route/template behavior
+
+- `GET /water-meter` calls `get_meter_names(db_path)`.
+- Passes a list named `meter_names` to the template — does not overwrite `meter_name`.
+- Form template renders an `<input name="meter_name">` with `list="meter-name-options"` attribute.
+- The datalist element uses `id="meter-name-options"` — separate from the input name.
+- The `name` attribute remains `meter_name` — POST handling unchanged.
+- Existing error-param behavior for meter_name is preserved.
+- The user can type a new meter name not present in the datalist — no restriction to existing values.
+
+## 7. Test strategy
+
+- All existing 92 tests pass unchanged.
+- New storage tests:
+  - SQLite: `get_meter_names` returns distinct names; returns empty list when no readings.
+  - DynamoDB: returns names only from `entity_type="water_meter"` items; ignores broken_clock items.
+- New route tests:
+  - GET /water-meter passes meter names to template.
+  - Template renders a `<datalist>` element.
+  - Existing POST behavior unchanged.
+- DynamoDB tests use mocked boto3 — no real AWS calls.
+- All tests use `tmp_path` + `monkeypatch` for DB isolation.
+
+## 8. Follow-up steps
+
+- None — this is a small isolated UX improvement.

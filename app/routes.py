@@ -320,7 +320,10 @@ def delete_history_html(record_id):
 
 def water_meter_form():
     today = datetime.now().strftime("%Y-%m-%d")
-    return render_template("water_meter/form.html", default_reading_date=today, active_page="water_meter")
+    db_path = wm_storage.get_db_path()
+    meter_names = wm_storage.get_meter_names(db_path)
+    return render_template("water_meter/form.html", default_reading_date=today,
+                           meter_names=meter_names, active_page="water_meter")
 
 
 def water_meter_add_reading():

@@ -210,3 +210,37 @@ def test_default_backend_still_sqlite():
     assert path is not None
     assert "test" not in path  # not a test path, but a real default
     assert path.endswith(".db")
+
+
+def test_get_meter_names_returns_only_water_meter(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_wm_dynamodb()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    table = fake_db.Table("test-table")
+    # Water Meter items with distinct names
+    table.put_item(Item={"app_id": "test-app", "created_at": "t1", "entity_type": "water_meter",
+                         "meter_name": "garden", "reading_date": "1", "reading_value": 1, "unit": "m3"})
+    table.put_item(Item={"app_id": "test-app", "created_at": "t2", "entity_type": "water_meter",
+                         "meter_name": "kitchen", "reading_date": "2", "reading_value": 2, "unit": "m3"})
+    # Broken Clock item (should be ignored)
+    table.put_item(Item={"app_id": "test-app", "created_at": "t3", "entity_type": "broken_clock",
+                         "meter_name": "ignored", "real_observed_time": "10:00"})
+
+    names = mod.get_meter_names(None)
+    assert names == ["garden", "kitchen"]
+
+
+def test_get_meter_names_empty_when_no_items(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_wm_dynamodb()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    names = mod.get_meter_names(None)
+    assert names == []

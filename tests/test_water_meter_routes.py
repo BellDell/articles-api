@@ -100,3 +100,17 @@ def test_history_shows_added_reading_after_post(client):
     text = response.get_data(as_text=True)
     assert "garden" in text
     assert "200" in text
+
+
+def test_form_contains_datalist(client):
+    """GET /water-meter renders a datalist element."""
+    response = client.get("/water-meter")
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "<datalist" in text or "meter-name-options" in text
+
+
+def test_form_contains_meter_name_field(client):
+    response = client.get("/water-meter")
+    text = response.get_data(as_text=True)
+    assert 'name="meter_name"' in text

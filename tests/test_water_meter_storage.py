@@ -41,3 +41,16 @@ def test_defaults_stored(db_path):
     assert r["meter_name"] == "main"
     assert r["unit"] == "m3"
     assert r["notes"] == ""
+
+
+def test_get_meter_names_returns_distinct_sorted(db_path):
+    mod.save_reading(db_path, 10, "2026-01-01", meter_name="kitchen")
+    mod.save_reading(db_path, 20, "2026-02-01", meter_name="garden")
+    mod.save_reading(db_path, 30, "2026-03-01", meter_name="kitchen")
+    names = mod.get_meter_names(db_path)
+    assert names == ["garden", "kitchen"]
+
+
+def test_get_meter_names_empty_when_no_readings(db_path):
+    names = mod.get_meter_names(db_path)
+    assert names == []

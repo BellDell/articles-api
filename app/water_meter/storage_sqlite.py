@@ -73,3 +73,15 @@ def get_readings(db_path):
                 "notes": row["notes"] or "",
             })
     return rows
+
+
+def get_meter_names(db_path):
+    """Return sorted distinct meter names."""
+    ensure_db_initialized(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        cursor = conn.execute(
+            "SELECT DISTINCT meter_name FROM water_meter_readings "
+            "WHERE meter_name IS NOT NULL AND meter_name != '' "
+            "ORDER BY meter_name"
+        )
+        return [row[0] for row in cursor.fetchall()]
