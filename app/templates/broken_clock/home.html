@@ -2,27 +2,46 @@
 {% block title %}Broken Clock Calculator{% endblock %}
 {% block content %}
 <section class="section">
-  <div class="container" style="max-width:640px">
-    <div class="box bc-box" style="text-align:center;padding:3rem 2rem">
-      <h1 class="title" style="color:#4a4a8a;font-size:2.2rem">&#9200; Welcome</h1>
-      <p class="subtitle is-5" style="margin-bottom:2rem">
-        Choose a tool to get started.
-      </p>
-      <p class="is-size-6" style="margin-bottom:2rem;color:#6a6a8a">
-        The Broken Clock Calculator converts a wrong clock&#8217;s reading to the real time.
-      </p>
-      <div class="buttons is-centered">
-        <a class="button is-large bc-btn" href="/broken-clock"
-           style="padding:1.5rem 2.5rem;font-size:1.15rem">
-          &#128200; Calculator
-        </a>
-        <a class="button is-large bc-btn" href="/broken-clock/history"
-           style="padding:1.5rem 2.5rem;font-size:1.15rem">
-          &#128214; History
-        </a>
+  <div class="container" style="max-width:720px">
+    <h1 class="title has-text-centered" style="color:#4a4a8a;font-size:2rem;margin-bottom:0.5rem">&#9200; Welcome</h1>
+    <p class="subtitle has-text-centered is-6" style="color:#6a6a8a;margin-bottom:2rem">
+      Choose a tool to get started.
+    </p>
+
+    <div class="columns is-centered is-variable is-6">
+
+      <!-- Broken Clock card -->
+      <div class="column is-half">
+        <div class="box bc-box" style="text-align:center;padding:2rem;height:100%">
+          <h2 class="title is-4" style="color:#4a4a8a">&#128200; Broken Clock</h2>
+          <p class="is-size-6" style="color:#6a6a8a;margin-bottom:1.5rem;line-height:1.6">
+            Convert a wrong clock&#8217;s reading to the real time.
+          </p>
+          <div class="buttons is-centered">
+            <a class="button bc-btn" href="/broken-clock"
+               style="padding:0.8rem 1.6rem;font-size:0.95rem">Open Calculator</a>
+            <a class="button bc-btn" href="/broken-clock/history"
+               style="padding:0.8rem 1.6rem;font-size:0.95rem">History</a>
+          </div>
+        </div>
       </div>
-      <p class="is-size-7 mt-4">
-        <a href="/water-meter" style="color:#818cf8">Water Meter readings &#8594;</a>
+
+      <!-- Water Meter card -->
+      <div class="column is-half">
+        <div class="box bc-box" style="text-align:center;padding:2rem;height:100%">
+          <h2 class="title is-4" style="color:#4a4a8a">&#128207; Water Meter</h2>
+          <p class="is-size-6" style="color:#6a6a8a;margin-bottom:1.5rem;line-height:1.6">
+            Track your water usage by recording meter readings.
+          </p>
+          <div class="buttons is-centered">
+            <a class="button bc-btn" href="/water-meter"
+               style="padding:0.8rem 1.6rem;font-size:0.95rem">Add Reading</a>
+            <a class="button bc-btn" href="/water-meter/history"
+               style="padding:0.8rem 1.6rem;font-size:0.95rem">History</a>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </section>

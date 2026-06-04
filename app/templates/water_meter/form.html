@@ -3,33 +3,33 @@
 {% block content %}
 <section class="section">
   <div class="container" style="max-width:640px">
-    <div class="box bc-box">
-      <h1 class="title" style="color:#4a4a8a">Add Water Meter Reading</h1>
+    <div class="bc-card-dark">
+      <h1 class="title is-4 mb-4" style="color:#a78bfa">Add Water Meter Reading</h1>
 
       {% if error %}
-      <div class="notification is-danger">{{ error }}</div>
+      <div class="notification is-danger" style="font-size:0.88rem">{{ error }}</div>
       {% endif %}
 
       <form action="/water-meter/readings" method="post">
         <div class="field">
-          <label class="label" for="reading_date">Reading date</label>
+          <label class="label bc-label-light" for="reading_date">Reading date</label>
           <div class="control">
-            <input id="reading_date" name="reading_date" class="input bc-input" type="text"
-                   placeholder="YYYY-MM-DD" value="{{ request.args.get('reading_date', '') }}" autocomplete="off">
+            <input id="reading_date" name="reading_date" class="input bc-input" type="date"
+                   value="{{ request.args.get('reading_date', default_reading_date) }}" autocomplete="off">
           </div>
         </div>
 
         <div class="field">
-          <label class="label" for="meter_name">Meter name</label>
+          <label class="label bc-label-light" for="meter_name">Meter name</label>
           <div class="control">
             <input id="meter_name" name="meter_name" class="input bc-input" type="text"
                    placeholder="main" value="{{ request.args.get('meter_name', '') }}" autocomplete="off">
           </div>
-          <p class="help">Defaults to "main" if left blank.</p>
+          <p class="help bc-help">Defaults to "main" if left blank.</p>
         </div>
 
         <div class="field">
-          <label class="label" for="reading_value">Reading value</label>
+          <label class="label bc-label-light" for="reading_value">Reading value</label>
           <div class="control">
             <input id="reading_value" name="reading_value" class="input bc-input" type="text"
                    placeholder="e.g. 123.45" step="any" autocomplete="off">
@@ -37,25 +37,28 @@
         </div>
 
         <div class="field">
-          <label class="label" for="unit">Unit</label>
+          <label class="label bc-label-light" for="unit">Unit</label>
           <div class="control">
             <input id="unit" name="unit" class="input bc-input" type="text"
                    placeholder="m3" value="{{ request.args.get('unit', '') }}" autocomplete="off">
           </div>
-          <p class="help">Defaults to "m3" if left blank.</p>
+          <p class="help bc-help">Defaults to "m3" if left blank.</p>
         </div>
 
         <div class="field">
-          <label class="label" for="notes">Notes (optional)</label>
+          <label class="label bc-label-light" for="notes">Notes (optional)</label>
           <div class="control">
             <input id="notes" name="notes" class="input bc-input" type="text"
                    placeholder="Any notes" value="{{ request.args.get('notes', '') }}" autocomplete="off">
           </div>
         </div>
 
-        <div class="field">
+        <div class="field is-grouped is-grouped-centered mt-5">
           <div class="control">
-            <button class="button is-primary bc-btn" type="submit">Add reading</button>
+            <button class="button bc-btn" type="submit" style="padding:0.7rem 2rem;font-size:0.95rem">Add reading</button>
+          </div>
+          <div class="control">
+            <a class="button is-ghost" href="/water-meter/history" style="color:#818cf8;font-size:0.9rem">View history</a>
           </div>
         </div>
       </form>
