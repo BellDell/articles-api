@@ -320,7 +320,10 @@ def delete_history_html(record_id):
 
 def water_meter_form():
     today = datetime.now().strftime("%Y-%m-%d")
-    return render_template("water_meter/form.html", default_reading_date=today, active_page="water_meter")
+    db_path = wm_storage.get_db_path()
+    meter_names = wm_storage.get_meter_names(db_path)
+    return render_template("water_meter/form.html", default_reading_date=today,
+                           meter_names=meter_names, active_page="water_meter")
 
 
 def water_meter_add_reading():
@@ -376,6 +379,34 @@ def water_meter_history():
     return render_template("water_meter/history.html", readings=readings, active_page="water_meter"), 200
 
 
+def delete_water_meter_reading(record_id):
+    """DELETE /water-meter/readings/<record_id> — JSON API."""
+    db_path = wm_storage.get_db_path()
+    try:
+        deleted = wm_storage.delete_reading(record_id, db_path)
+    except Exception as e:
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+
+    if not deleted:
+        return jsonify({"error": "Reading not found", "id": record_id}), 404
+
+    return jsonify({"deleted": True, "id": record_id}), 200
+
+
+def delete_water_meter_reading_html(record_id):
+    """POST /water-meter/readings/<record_id>/delete — HTML form fallback."""
+    db_path = wm_storage.get_db_path()
+    try:
+        deleted = wm_storage.delete_reading(record_id, db_path)
+    except Exception as e:
+        return render_template("broken_clock/error.html", message=f"Database error: {e}"), 500
+
+    if not deleted:
+        return render_template("broken_clock/error.html", message="Reading not found."), 404
+
+    return redirect("/water-meter/history")
+
+
 def register_routes(app):
     app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/authors", endpoint="get_authors", view_func=get_authors)
@@ -415,3 +446,11 @@ def register_routes(app):
         view_func=water_meter_add_reading, methods=["POST"],
     )
     app.add_url_rule("/water-meter/history", endpoint="water_meter_history", view_func=water_meter_history)
+    app.add_url_rule(
+        "/water-meter/readings/<record_id>", endpoint="delete_water_meter_reading",
+        view_func=delete_water_meter_reading, methods=["DELETE"],
+    )
+    app.add_url_rule(
+        "/water-meter/readings/<record_id>/delete", endpoint="delete_water_meter_reading_html",
+        view_func=delete_water_meter_reading_html, methods=["POST"],
+    )

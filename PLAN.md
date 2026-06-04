@@ -1,51 +1,107 @@
-# Plan: Water Meter reading date input UX
+# Plan: Delete individual Water Meter readings
 
 ## 1. Goal
 
-Improve the Water Meter reading date field by switching to a browser-native `<input type="date">` and defaulting to today's date on the form page.
+Add the ability to delete individual Water Meter reading records from both SQLite and DynamoDB backends. Records can be removed via a JSON API or an HTML form POST on the history page.
 
 ## 2. In scope
 
-- Change the date input in `app/templates/water_meter/form.html` from `type="text"` to `type="date"`.
-- Keep the field `name="reading_date"` unchanged.
-- Pass a `default_date` template variable from the route handler (`GET /water-meter`) set to today's date in `YYYY-MM-DD` format.
-- Use the default as the input's `value` when no error-preserved value is present.
-- When an error redirect returns query params, the previously submitted date takes precedence (current behavior).
-- Update `test_water_meter_routes.py` or `test_water_meter_domain.py` only if tests fail.
-- Existing validation still expects `YYYY-MM-DD` — the browser always submits this format from `type="date"`.
+- Add `delete_reading(record_id)` to the storage facade.
+- Add SQLite implementation (delete by id, return True/False).
+- Add DynamoDB implementation (query by app_id, filter entity_type="water_meter", find matching id, delete by app_id + created_at, return True/False).
+- Add `DELETE /water-meter/readings/<record_id>` JSON route.
+- Add `POST /water-meter/readings/<record_id>/delete` HTML fallback route.
+- Add a delete button per row on the Water Meter history page.
+- Add tests for storage (SQLite and DynamoDB) and routes (JSON and HTML).
 
 ## 3. Out of scope
 
-- No JavaScript date picker library (browser-native only).
-- No storage changes.
-- No route URL changes (still `GET /water-meter`).
-- No JSON response shape changes.
-- No DynamoDB or SQLite changes.
-- No Terraform, Docker, or GitHub Actions.
-- No timezone or user locale handling.
-- No edit/delete/charts.
+- No bulk delete or delete-all.
+- No edit readings.
+- No auth or CSRF implementation.
+- No storage schema changes.
+- No DynamoDB key schema changes.
+- No Terraform, App Runner, Docker, or GitHub Actions changes.
+- No changes to Broken Clock behavior.
 
-## 4. UI behavior
+## 4. Route / API behavior
 
-- Text input renders a browser-native date picker on supporting browsers.
-- On desktop browsers without date picker support, a plain text input appears (graceful degradation).
-- The default date is today in `YYYY-MM-DD` format.
-- If the user navigated back via a validation error with query params, the submitted date is used instead of today's default.
-- Manual `YYYY-MM-DD` entry still works.
+### JSON route: `DELETE /water-meter/readings/<record_id>`
 
-## 5. Test strategy
+- Deletes the record with the given id.
+- Returns `{"deleted": True, "id": <id>}` with status 200 on success.
+- Returns `{"error": "Reading not found", "id": <id>}` with status 404 on miss.
+- Returns JSON error with status 500 on storage failure.
 
-- All 92 existing tests pass.
-- Two tests may need small updates:
-  - `test_form_returns_200` — verify the response text contains today's date or does not break.
-  - A new or updated test verifying `type="date"` attribute is present in the rendered HTML (optional — avoids brittle HTML assertions).
-- No test changes strictly required — all existing route tests use form POST, which is unchanged.
+### HTML fallback route: `POST /water-meter/readings/<record_id>/delete`
 
-## 6. Compatibility rules
+- Deletes the record with the given id.
+- Redirects to `/water-meter/history` with 302 on success.
+- On failure, renders an error page with 404 or 500.
+- The `<record_id>` path parameter accepts strings (DynamoDB stable UUID ids are strings).
 
-- Route URL unchanged: `GET /water-meter`.
-- Form `action` unchanged: `/water-meter/readings`.
-- Form field `name` unchanged: `reading_date`.
-- Validation unchanged: `YYYY-MM-DD`.
-- POST handler unchanged: reads `reading_date` from form data.
-- Error redirect unchanged: preserves submitted value via query param.
+## 5. Storage responsibilities
+
+### Facade (`app/water_meter/storage.py`)
+
+- Add `delete_reading(record_id, db_path)` dispatching by `STORAGE_BACKEND`.
+- `record_id` is the stable id (SQLite int, DynamoDB UUID string).
+
+### SQLite (`app/water_meter/storage_sqlite.py`)
+
+- `DELETE FROM water_meter_readings WHERE id = ?`
+- Return True if a row was deleted, False otherwise.
+- Existing schema unchanged.
+
+### DynamoDB (`app/water_meter/storage_dynamodb.py`)
+
+- Query all items for `app_id`, filter `entity_type="water_meter"`.
+- Find item where stored `id` matches the given `record_id`.
+- Delete using `app_id` + `created_at` key.
+- Return True if deleted, False if not found.
+- Only delete items where `entity_type="water_meter"` — never touch Broken Clock items.
+- Existing schema and key structure unchanged.
+
+## 6. UI behavior
+
+- Each row in the Water Meter history table gets a delete button.
+- The delete is submitted as `POST /water-meter/readings/<id>/delete`.
+- Consistent Bulma styling with a small danger-colored button.
+- No JavaScript required.
+- The button includes a confirmation dialog via `onclick="return confirm(...)"`.
+
+## 7. Backward compatibility rules
+
+- Existing `GET /water-meter/history` behavior unchanged.
+- Existing JSON history response shape unchanged.
+- Existing `POST /water-meter/readings` form submission unchanged.
+- Existing meter-name suggestions unchanged.
+- SQLite remains default.
+- All 98 existing tests pass without modification.
+
+## 8. Test strategy
+
+- All 98 existing tests pass unchanged.
+- New storage tests:
+  - SQLite: delete existing reading returns True and record disappears.
+  - SQLite: delete missing reading returns False.
+  - DynamoDB (mocked): delete existing Water Meter item returns True.
+  - DynamoDB: delete missing id returns False.
+  - DynamoDB: only deletes entity_type="water_meter" items, not broken_clock items.
+- New route tests:
+  - `DELETE /water-meter/readings/<id>` valid id returns 200 JSON.
+  - `DELETE /water-meter/readings/<id>` unknown id returns 404 JSON.
+  - `POST /water-meter/readings/<id>/delete` valid id redirects to history.
+  - `POST /water-meter/readings/<id>/delete` unknown id returns 404 HTML.
+- DynamoDB tests use mocked boto3 — no real AWS calls.
+- All route tests use `tmp_path` + `monkeypatch` for DB isolation.
+
+## 9. Security notes
+
+- This step does not introduce auth or CSRF tokens. The app has no user concept or authentication. CSRF should be revisited when auth or user-specific record ownership is introduced.
+
+## 10. Follow-up steps
+
+- Add edit functionality for readings.
+- Add auth when user-id scoping is needed.
+- Add CSRF to all destructive POST forms.

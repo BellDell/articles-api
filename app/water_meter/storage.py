@@ -55,3 +55,21 @@ def get_readings(db_path):
     else:
         from app.water_meter.storage_sqlite import get_readings as _fn
     return _fn(db_path)
+
+
+def get_meter_names(db_path):
+    backend = _get_backend()
+    if backend == "dynamodb":
+        from app.water_meter.storage_dynamodb import get_meter_names as _fn
+    else:
+        from app.water_meter.storage_sqlite import get_meter_names as _fn
+    return _fn(db_path)
+
+
+def delete_reading(record_id, db_path):
+    backend = _get_backend()
+    if backend == "dynamodb":
+        from app.water_meter.storage_dynamodb import delete_reading as _fn
+    else:
+        from app.water_meter.storage_sqlite import delete_reading as _fn
+    return _fn(record_id, db_path)

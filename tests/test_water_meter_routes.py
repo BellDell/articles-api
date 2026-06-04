@@ -100,3 +100,53 @@ def test_history_shows_added_reading_after_post(client):
     text = response.get_data(as_text=True)
     assert "garden" in text
     assert "200" in text
+
+
+def test_form_contains_datalist(client):
+    """GET /water-meter renders a datalist element."""
+    response = client.get("/water-meter")
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "<datalist" in text or "meter-name-options" in text
+
+
+def test_form_contains_meter_name_field(client):
+    response = client.get("/water-meter")
+    text = response.get_data(as_text=True)
+    assert 'name="meter_name"' in text
+
+
+def test_delete_json_success(client):
+    # Create a reading
+    client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    history = client.get("/water-meter/history", headers={"Accept": "application/json"})
+    rid = history.get_json()[0]["id"]
+
+    response = client.delete(f"/water-meter/readings/{rid}")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["deleted"] is True
+    assert str(data["id"]) == str(rid)
+
+
+def test_delete_json_not_found(client):
+    response = client.delete("/water-meter/readings/9999")
+    assert response.status_code == 404
+    data = response.get_json()
+    assert "error" in data
+
+
+def test_delete_html_post_redirects(client):
+    client.post("/water-meter/readings", data={"reading_value": "100", "reading_date": "2026-06-01"})
+    history = client.get("/water-meter/history", headers={"Accept": "application/json"})
+    rid = history.get_json()[0]["id"]
+
+    response = client.post(f"/water-meter/readings/{rid}/delete")
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/water-meter/history"
+
+
+def test_delete_html_post_not_found(client):
+    response = client.post("/water-meter/readings/9999/delete")
+    assert response.status_code == 404
+    assert "text/html" in response.content_type
