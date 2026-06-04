@@ -1,62 +1,88 @@
-# Plan: Shared storage infrastructure refactor
+# Plan: DynamoDB backend for Water Meter readings
 
 ## 1. Goal
 
-Extract reusable DynamoDB storage plumbing from `app/broken_clock/storage_dynamodb.py` into `app/core/storage/dynamodb.py` — a shared module that future feature packages (Water Meter) can use alongside Broken Clock. The `app/broken_clock/` package keeps its feature-specific logic, storage facade, and backend files.
+Add an optional DynamoDB storage backend for Water Meter readings alongside the existing SQLite backend. Water Meter records are stored in the existing shared App Runner DynamoDB table, separated from Broken Clock records via an `entity_type` attribute.
 
-## 2. Why this refactor is needed before Water Meter
+## 2. Why no Terraform in this step
 
-`app/broken_clock/storage_dynamodb.py` contains both generic DynamoDB infrastructure (table lookup, query pagination) and Broken Clock-specific mapping (JSON encoding/decoding of calculation fields). Before a second feature package needs DynamoDB access, these generic parts should live in a shared location to avoid duplication.
+The existing App Runner DynamoDB table already supports both entity types. No new DynamoDB table, no GSI, and no key schema changes are needed. Water Meter records coexist with Broken Clock records using the `entity_type` attribute. Terraform updates (permissions, if needed) can be a separate follow-up.
 
 ## 3. In scope
 
-- Create `app/core/storage/` package with `__init__.py`.
-- Create `app/core/storage/dynamodb.py` with generic DynamoDB helpers.
-- Move `_get_table()` and `_query_all_items()` helpers from `app/broken_clock/storage_dynamodb.py` into `app/core/storage/dynamodb.py`.
-- The shared helpers accept a table name argument rather than reading `DYNAMODB_TABLE` from env — the caller is responsible for providing the table name.
-- Update `app/broken_clock/storage_dynamodb.py` to import and use the shared helpers.
-- Keep the Broken Clock `save_calculation`, `get_history`, and `delete_history_record` functions in the Broken Clock package — they contain feature-specific logic.
+- Add `app/water_meter/storage_dynamodb.py`.
+- Update `app/water_meter/storage.py` to dispatch by `STORAGE_BACKEND` (default `sqlite`, supports `dynamodb`).
+- Water Meter uses the same `DYNAMODB_TABLE` env var as Broken Clock.
+- Water Meter uses shared helpers from `app/core/storage/dynamodb.py`.
+- Water Meter records include `entity_type = "water_meter"`.
+- `save_reading()` generates a stable UUID id.
+- `get_readings()` queries by `app_id` and filters items where `entity_type == "water_meter"`.
+- Returned reading shape matches the SQLite backend.
+- Tests mock/stub boto3 — no real AWS calls.
 
 ## 4. Out of scope
 
-- No Water Meter implementation.
-- No changes to `app/broken_clock/storage.py` (public facade).
-- No changes to `app/broken_clock/storage_sqlite.py`.
-- No route or JSON response shape changes.
-- No Terraform or App Runner changes.
+- No Terraform changes.
+- No App Runner or GitHub Actions changes.
+- No new DynamoDB table or key schema changes.
+- No GSI.
+- No migration for existing SQLite data.
 - No auth or user_id.
-- No migrations.
-- No renaming files to "repository" in this step.
+- No edit/delete readings.
+- No charts.
+- No changes to Broken Clock behavior.
 
-## 5. Target responsibilities
+## 5. DynamoDB single-table design
 
-### `app/core/storage/dynamodb.py` (new)
+| Attribute | Value (Water Meter) | Value (Broken Clock) |
+|---|---|---|
+| `app_id` (partition key) | Environment `APP_ID` (default `articles-api`) | Same |
+| `created_at` (sort key) | UTC ISO-8601 | UTC ISO-8601 |
+| `entity_type` | `"water_meter"` | `"broken_clock"` (new records); legacy records may be absent |
+| `id` | UUID hex (stable) | UUID hex (stable) |
+| Feature fields | `reading_date`, `meter_name`, `reading_value`, `unit`, `notes` | Calculation-specific fields |
 
-- `get_dynamodb_table(table_name)` — returns a DynamoDB Table resource. Reads `DYNAMODB_TABLE` from env if `table_name` is `None`.
-- `query_all_items(table, hash_key_name, hash_key_value)` — runs a DynamoDB query with pagination, returns all items sorted newest first (by sort key descending).
-- No Flask dependency. No Broken Clock domain logic.
+Both entity types live in the same table, share the same primary key schema, and are differentiated by `entity_type`. This keeps the existing Terraform and App Runner configuration unchanged.
 
-### `app/broken_clock/storage_dynamodb.py` (updated)
+Records without `entity_type` are treated as `broken_clock` (legacy support).
 
-- Imports from `app.core.storage.dynamodb`.
-- Calls `get_dynamodb_table()` to get the table.
-- Calls `query_all_items()` for history and delete queries.
-- Keeps all feature-specific logic: JSON encoding/decoding of calculation fields, history response shape, delete by stable id.
+## 6. Backend responsibilities
 
-## 6. Backward compatibility rules
+### `app/water_meter/storage.py` (updated)
 
-- All public function signatures in `app/broken_clock/storage.py` unchanged.
-- All DynamoDB behavior (table name, env vars, pagination, ordering, response shapes) unchanged.
-- SQLite behavior unchanged.
-- All 60 existing tests pass without modification.
+- Reads `STORAGE_BACKEND` env var.
+- Defaults to SQLite.
+- Dispatches `save_reading()` and `get_readings()` to the appropriate backend.
+- Unsupported backends raise `ValueError`.
 
-## 7. Test strategy
+### `app/water_meter/storage_dynamodb.py` (new)
 
-- All 60 existing tests pass unchanged.
-- No test changes needed — the shared helpers are tested indirectly through existing DynamoDB tests.
-- If desired, a separate test file for the shared helpers can be added in a follow-up step.
+- `get_db_path()` — returns `None` (no file path needed).
+- `ensure_db_initialized(db_path)` — no-op (table created by Terraform).
+- `save_reading(db_path, reading_value, reading_date, meter_name, unit, notes)` — writes an item with `entity_type = "water_meter"`, stable UUID id, and all reading fields.
+- `get_readings(db_path)` — queries all items for `app_id` via shared helper, filters to items where `entity_type == "water_meter"`, returns newest first with same shape as SQLite.
 
-## 8. Follow-up steps
+## 7. Backward compatibility rules
 
-- Implement Water Meter feature with its own storage backends (`app/water_meter/storage_sqlite.py`, `app/water_meter/storage_dynamodb.py`) using the shared infrastructure.
-- Optionally add a shared SQLite helper to `app/core/storage/sqlite.py` if table creation and connection lifecycle logic can be parameterized.
+- `STORAGE_BACKEND` unset, empty, or `"sqlite"` — SQLite behavior is identical.
+- `STORAGE_BACKEND=dynamodb` — Water Meter uses DynamoDB.
+- Unsupported backend raises `ValueError`.
+- Broken Clock behavior unchanged.
+- Legacy Broken Clock records without `entity_type` are not affected.
+
+## 8. Test strategy
+
+- All 85 existing tests pass unchanged.
+- New DynamoDB storage tests (mocked boto3, no real AWS):
+  - `save_reading` writes item with `entity_type="water_meter"`.
+  - `get_readings` returns only water_meter items (filters out broken_clock items).
+  - `get_readings` returns newest first.
+  - `get_readings` returns compatible shape (same fields as SQLite).
+  - Missing `DYNAMODB_TABLE` raises clear `ValueError`.
+- No real AWS calls.
+
+## 9. Follow-up steps
+
+- Add Terraform DynamoDB table updates if IAM permissions need broadening (likely already covered by existing policy).
+- Add edit/delete for Water Meter readings.
+- Add usage deltas and charts.

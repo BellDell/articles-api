@@ -19,6 +19,8 @@ from app.broken_clock.domain import (
     format_compact_ref_point,
 )
 from app.broken_clock.storage import get_db_path, save_calculation, get_history, delete_history_record
+from app.water_meter import storage as wm_storage
+from app.water_meter.domain import validate_reading
 
 
 BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
@@ -316,6 +318,63 @@ def delete_history_html(record_id):
     return redirect("/broken-clock/history")
 
 
+def water_meter_form():
+    return render_template("water_meter/form.html", active_page="water_meter")
+
+
+def water_meter_add_reading():
+    if request.is_json:
+        data = request.get_json(silent=True)
+    else:
+        data = request.form.to_dict()
+
+    errors, cleaned = validate_reading(
+        reading_value=data.get("reading_value"),
+        reading_date=data.get("reading_date"),
+        meter_name=data.get("meter_name"),
+        unit=data.get("unit"),
+        notes=data.get("notes"),
+    )
+    if errors:
+        msg = "; ".join(errors.values())
+        if request.is_json:
+            return jsonify({"error": msg}), 400
+        return redirect(f"/water-meter?error={msg}&reading_date={data.get('reading_date', '')}&meter_name={data.get('meter_name', '')}&unit={data.get('unit', '')}&notes={data.get('notes', '')}")
+
+    db_path = wm_storage.get_db_path()
+    try:
+        wm_storage.save_reading(
+            db_path,
+            reading_value=cleaned["reading_value"],
+            reading_date=cleaned["reading_date"],
+            meter_name=cleaned["meter_name"],
+            unit=cleaned["unit"],
+            notes=cleaned["notes"],
+        )
+    except Exception as e:
+        if request.is_json:
+            return jsonify({"error": f"Database error: {str(e)}"}), 500
+        return render_template("broken_clock/error.html", message="Could not save reading."), 500
+
+    if request.is_json:
+        return jsonify({"success": True}), 201
+    return redirect("/water-meter/history")
+
+
+def water_meter_history():
+    db_path = wm_storage.get_db_path()
+    try:
+        readings = wm_storage.get_readings(db_path)
+    except Exception as e:
+        if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML:
+            return render_template("broken_clock/error.html", message=f"Database error: {e}"), 500
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+
+    if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == APPLICATION_JSON:
+        return jsonify(readings), 200
+    return render_template("water_meter/history.html", readings=readings, active_page="water_meter"), 200
+
+
 def register_routes(app):
     app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/authors", endpoint="get_authors", view_func=get_authors)
@@ -349,3 +408,9 @@ def register_routes(app):
         "/broken-clock/history/<record_id>/delete", endpoint="delete_history_html",
         view_func=delete_history_html, methods=["POST"],
     )
+    app.add_url_rule("/water-meter", endpoint="water_meter_form", view_func=water_meter_form)
+    app.add_url_rule(
+        "/water-meter/readings", endpoint="water_meter_add_reading",
+        view_func=water_meter_add_reading, methods=["POST"],
+    )
+    app.add_url_rule("/water-meter/history", endpoint="water_meter_history", view_func=water_meter_history)

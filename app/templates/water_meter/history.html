@@ -1,0 +1,49 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Water Meter History{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="container" style="max-width:780px">
+    <div class="bc-card" style="background:#1e1e2e;border-radius:16px;padding:2rem;box-shadow:0 8px 40px rgba(0,0,0,0.18)">
+      <h1 class="title is-4 mb-4" style="color:#a78bfa">Water Meter History</h1>
+
+      {% if not readings %}
+      <div style="color:#4b5563;text-align:center;padding:2rem 0">
+        <p>No readings yet.</p>
+        <a href="/water-meter" style="color:#818cf8">Add your first reading →</a>
+      </div>
+      {% else %}
+      <table class="table is-striped is-fullwidth is-narrow" style="background:transparent;color:#f3f4f6">
+        <thead>
+          <tr style="color:#6b7280;text-transform:uppercase;font-size:0.75rem">
+            <th>Date</th>
+            <th>Meter</th>
+            <th>Value</th>
+            <th>Unit</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in readings %}
+          <tr>
+            <td style="color:#f3f4f6">{{ r.reading_date }}</td>
+            <td>{{ r.meter_name }}</td>
+            <td style="color:#a78bfa;font-weight:600">{{ r.reading_value }}</td>
+            <td>{{ r.unit }}</td>
+            <td style="color:#6b7280">{{ r.notes }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p style="color:#4b5563;font-size:0.78rem;margin-top:0.75rem">
+        Showing latest {{ readings|length }} readings, newest first.
+      </p>
+      {% endif %}
+
+      <a class="button bc-btn mt-4" href="/water-meter"
+         style="background:linear-gradient(135deg,#667eea,#764ba2)!important">
+        ← Add another reading
+      </a>
+    </div>
+  </div>
+</section>
+{% endblock %}

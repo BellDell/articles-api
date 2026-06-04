@@ -1,0 +1,65 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Add Water Meter Reading{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="container" style="max-width:640px">
+    <div class="box bc-box">
+      <h1 class="title" style="color:#4a4a8a">Add Water Meter Reading</h1>
+
+      {% if error %}
+      <div class="notification is-danger">{{ error }}</div>
+      {% endif %}
+
+      <form action="/water-meter/readings" method="post">
+        <div class="field">
+          <label class="label" for="reading_date">Reading date</label>
+          <div class="control">
+            <input id="reading_date" name="reading_date" class="input bc-input" type="text"
+                   placeholder="YYYY-MM-DD" value="{{ request.args.get('reading_date', '') }}" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="meter_name">Meter name</label>
+          <div class="control">
+            <input id="meter_name" name="meter_name" class="input bc-input" type="text"
+                   placeholder="main" value="{{ request.args.get('meter_name', '') }}" autocomplete="off">
+          </div>
+          <p class="help">Defaults to "main" if left blank.</p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="reading_value">Reading value</label>
+          <div class="control">
+            <input id="reading_value" name="reading_value" class="input bc-input" type="text"
+                   placeholder="e.g. 123.45" step="any" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="unit">Unit</label>
+          <div class="control">
+            <input id="unit" name="unit" class="input bc-input" type="text"
+                   placeholder="m3" value="{{ request.args.get('unit', '') }}" autocomplete="off">
+          </div>
+          <p class="help">Defaults to "m3" if left blank.</p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="notes">Notes (optional)</label>
+          <div class="control">
+            <input id="notes" name="notes" class="input bc-input" type="text"
+                   placeholder="Any notes" value="{{ request.args.get('notes', '') }}" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="control">
+            <button class="button is-primary bc-btn" type="submit">Add reading</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

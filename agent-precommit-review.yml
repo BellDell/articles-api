@@ -8,10 +8,10 @@ metadata:
 models:
   qa_reviewer:
     provider: openai
-    model: qwen/qwen3-coder-next
+    model: google/gemini-2.5-flash
+    max_tokens: 2500
     base_url: https://openrouter.ai/api/v1
     token_key: OPENROUTER_API_KEY
-    max_tokens: 3000
 
 agents:
   root:
