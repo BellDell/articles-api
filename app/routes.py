@@ -21,6 +21,8 @@ from app.broken_clock.domain import (
 from app.broken_clock.storage import get_db_path, save_calculation, get_history, delete_history_record
 from app.water_meter import storage as wm_storage
 from app.water_meter.domain import validate_reading
+from app.core.rate_limit import consume_write_quota
+from app.core.rate_limit.limiter import make_429_response, WINDOW_SECONDS, MAX_WRITES
 
 
 BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
@@ -257,6 +259,16 @@ def broken_clock_calculate():
 
     explanation = format_explanation(offset_human, clock_status)
 
+    # Rate limit check — after validation, before DB write
+    allowed, retry_after = consume_write_quota("broken_clock", request.remote_addr)
+    if not allowed:
+        if request.is_json:
+            return make_429_response()
+        return render_template(
+            BROKEN_CLOCK_ERROR_TEMPLATE,
+            message=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+        ), 429
+
     try:
         db_path = get_db_path()
         save_calculation(db_path, real_observed_time, wrong_observed_time,
@@ -344,6 +356,16 @@ def water_meter_add_reading():
         if request.is_json:
             return jsonify({"error": msg}), 400
         return redirect(f"/water-meter?error={msg}&reading_date={data.get('reading_date', '')}&meter_name={data.get('meter_name', '')}&unit={data.get('unit', '')}&notes={data.get('notes', '')}")
+
+    # Rate limit check — after validation, before DB write
+    allowed, retry_after = consume_write_quota("water_meter", request.remote_addr)
+    if not allowed:
+        if request.is_json:
+            return make_429_response()
+        return render_template(
+            "broken_clock/error.html",
+            message=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+        ), 429
 
     db_path = wm_storage.get_db_path()
     try:

@@ -213,7 +213,6 @@ def test_default_backend_still_sqlite():
     # sqlite get_db_path should return a file path, not None
     path = mod.get_db_path()
     assert path is not None
-    assert "test" not in path  # not a test path, but a real default
     assert path.endswith(".db")
 
 

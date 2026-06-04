@@ -16,8 +16,9 @@ import app.routes
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
     flask_app.config["TESTING"] = True
+    os.environ["APP_DB_PATH"] = str(tmp_path / "test_err.db")
     with flask_app.test_client() as client:
         yield client
 

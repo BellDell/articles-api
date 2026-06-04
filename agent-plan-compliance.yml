@@ -11,7 +11,6 @@ models:
     model: tencent/hy3-preview
     base_url: https://openrouter.ai/api/v1
     token_key: OPENROUTER_API_KEY
-    max_tokens: 3000
 
 agents:
   root:

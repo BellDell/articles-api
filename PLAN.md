@@ -1,107 +1,133 @@
-# Plan: Delete individual Water Meter readings
+# Plan: Shared write rate limiter
 
 ## 1. Goal
 
-Add the ability to delete individual Water Meter reading records from both SQLite and DynamoDB backends. Records can be removed via a JSON API or an HTML form POST on the history page.
+Add a shared persistent rate limiter for database write/create operations. Limits writes to 5 records per 12 hours per feature (`broken_clock`, `water_meter`) per client IP. Both SQLite and DynamoDB backends are supported.
 
-## 2. In scope
+## 2. Threat model
 
-- Add `delete_reading(record_id)` to the storage facade.
-- Add SQLite implementation (delete by id, return True/False).
-- Add DynamoDB implementation (query by app_id, filter entity_type="water_meter", find matching id, delete by app_id + created_at, return True/False).
-- Add `DELETE /water-meter/readings/<record_id>` JSON route.
-- Add `POST /water-meter/readings/<record_id>/delete` HTML fallback route.
-- Add a delete button per row on the Water Meter history page.
-- Add tests for storage (SQLite and DynamoDB) and routes (JSON and HTML).
+The limiter targets accidental or intentional abuse of write endpoints by clients who know the API endpoints and call them directly. It is app-level protection, not a replacement for WAF, auth, or database access controls.
 
-## 3. Out of scope
+## 3. In scope
 
-- No bulk delete or delete-all.
-- No edit readings.
-- No auth or CSRF implementation.
-- No storage schema changes.
-- No DynamoDB key schema changes.
-- No Terraform, App Runner, Docker, or GitHub Actions changes.
-- No changes to Broken Clock behavior.
+- Create `app/core/rate_limit/` package with `__init__.py`.
+- Add public function `consume_write_quota(feature_name, client_ip)` returning `(allowed, retry_after_seconds)`.
+- Add SQLite implementation for local/default backend.
+- Add DynamoDB implementation for App Runner (atomic conditional update on shared table).
+- Apply limiter to `POST /broken-clock/calculate` and `POST /water-meter/readings`.
+- Return HTTP 429 with `Retry-After` header (integer seconds) when exceeded.
+- Add tests for SQLite limiter, DynamoDB limiter, and route-level 429 behavior.
+- DynamoDB uses hashed client IP, not raw IP.
 
-## 4. Route / API behavior
+## 4. Out of scope
 
-### JSON route: `DELETE /water-meter/readings/<record_id>`
+- No Terraform in this step.
+- No WAF, Redis, or auth.
+- No CAPTCHA.
+- No rate limiting for GET routes or DELETE.
+- No changes to existing JSON response shapes (except the new 429 error response).
+- No route URL changes.
+- No changes to Broken Clock or Water Meter normal flow behavior.
 
-- Deletes the record with the given id.
-- Returns `{"deleted": True, "id": <id>}` with status 200 on success.
-- Returns `{"error": "Reading not found", "id": <id>}` with status 404 on miss.
-- Returns JSON error with status 500 on storage failure.
+## 5. Rate limit key design
 
-### HTML fallback route: `POST /water-meter/readings/<record_id>/delete`
+### SQLite
 
-- Deletes the record with the given id.
-- Redirects to `/water-meter/history` with 302 on success.
-- On failure, renders an error page with 404 or 500.
-- The `<record_id>` path parameter accepts strings (DynamoDB stable UUID ids are strings).
+- Table: `rate_limit_windows`
+- Rows keyed by `feature_name` + `ip_hash` + `window_start`.
+- A window is a fixed 12-hour bucket aligned to UTC epoch: `(now_epoch_seconds // 43200) * 43200`.
+- Write increments a counter; if counter > 5 after increment, the write is blocked.
 
-## 5. Storage responsibilities
+### DynamoDB
 
-### Facade (`app/water_meter/storage.py`)
+- Reuses the existing shared App Runner DynamoDB table.
+- Partition key: `app_id` (same as other features).
+- Sort key: a deterministic limiter key string of the form:
+  `rate_limit#{feature_name}#{ip_hash}#{window_start_epoch}`
+- This ensures all requests for the same feature / IP hash / 12-hour window update the same DynamoDB item atomically. The sort key is **not** a request creation timestamp — it is a deterministic bucket identifier.
+- Uses a conditional update (atomic counter) to increment the write count — if count exceeds the limit, the write is rejected.
+- Does not use Scan.
+- Does not create table at runtime.
+- Stores a hash of the client IP, not the raw IP.
+- Existing table key schema unchanged: `app_id` (partition key), `created_at` (sort key, but the stored value is the deterministic bucket key described above).
 
-- Add `delete_reading(record_id, db_path)` dispatching by `STORAGE_BACKEND`.
-- `record_id` is the stable id (SQLite int, DynamoDB UUID string).
+### Compatibility note (DynamoDB sort key repurposing)
 
-### SQLite (`app/water_meter/storage_sqlite.py`)
+Rate-limit items use a non-timestamp string (`rate_limit#feature#hash#epoch`) in the `created_at` sort-key field. This does not conflict with existing consumers because:
 
-- `DELETE FROM water_meter_readings WHERE id = ?`
-- Return True if a row was deleted, False otherwise.
-- Existing schema unchanged.
+- Existing code (`get_history`, `get_readings`, `delete_history_record`, `delete_reading`) filters by `entity_type` — rate-limit items have no `entity_type` attribute (or a distinct one) and are never returned by feature-specific queries.
+- The broken-clock and water-meter DynamoDB backends query by `app_id` and then filter by `entity_type` client-side. Rate-limit items (which have no `entity_type` or a different key structure) are excluded by this filter.
+- No secondary indexes, TTL policies, or external tooling currently query the DynamoDB table directly. If TTL-based cleanup is added in a follow-up, rate-limit items will need their own TTL handling.
+- The App Runner instance role policy (PutItem, Query, DescribeTable) is broad enough to cover these new items without changes.
 
-### DynamoDB (`app/water_meter/storage_dynamodb.py`)
+### Window type
 
-- Query all items for `app_id`, filter `entity_type="water_meter"`.
-- Find item where stored `id` matches the given `record_id`.
-- Delete using `app_id` + `created_at` key.
-- Return True if deleted, False if not found.
-- Only delete items where `entity_type="water_meter"` — never touch Broken Clock items.
-- Existing schema and key structure unchanged.
+- Uses **fixed 12-hour windows** aligned to UTC epoch (not sliding windows).
+- At the boundary between two windows, up to 5 writes from the old window + 5 writes from the new window can occur in quick succession. This boundary burst is acceptable for the MVP and documented as a follow-up risk.
 
-## 6. UI behavior
+## 6. Backend responsibilities
 
-- Each row in the Water Meter history table gets a delete button.
-- The delete is submitted as `POST /water-meter/readings/<id>/delete`.
-- Consistent Bulma styling with a small danger-colored button.
-- No JavaScript required.
-- The button includes a confirmation dialog via `onclick="return confirm(...)"`.
+### `app/core/rate_limit/__init__.py`
 
-## 7. Backward compatibility rules
+- Public function `consume_write_quota(feature_name, client_ip)`.
+- Returns `(True, 0)` if within quota, `(False, retry_after_seconds)` if exceeded.
+- `retry_after_seconds` is an integer (seconds until the current fixed window ends).
+- Retrieves `app_id` from environment.
+- Delegates to SQLite or DynamoDB based on `STORAGE_BACKEND`.
 
-- Existing `GET /water-meter/history` behavior unchanged.
-- Existing JSON history response shape unchanged.
-- Existing `POST /water-meter/readings` form submission unchanged.
-- Existing meter-name suggestions unchanged.
-- SQLite remains default.
-- All 98 existing tests pass without modification.
+### `app/core/rate_limit/storage_sqlite.py`
 
-## 8. Test strategy
+- `consume_write_quota(feature_name, client_ip)` — uses atomic INSERT/UPDATE with counter logic.
+- Creates `rate_limit_windows` table if missing (lazy init).
+- Limits: 5 writes per 12-hour fixed window per feature per IP hash.
 
-- All 98 existing tests pass unchanged.
-- New storage tests:
-  - SQLite: delete existing reading returns True and record disappears.
-  - SQLite: delete missing reading returns False.
-  - DynamoDB (mocked): delete existing Water Meter item returns True.
-  - DynamoDB: delete missing id returns False.
-  - DynamoDB: only deletes entity_type="water_meter" items, not broken_clock items.
-- New route tests:
-  - `DELETE /water-meter/readings/<id>` valid id returns 200 JSON.
-  - `DELETE /water-meter/readings/<id>` unknown id returns 404 JSON.
-  - `POST /water-meter/readings/<id>/delete` valid id redirects to history.
-  - `POST /water-meter/readings/<id>/delete` unknown id returns 404 HTML.
-- DynamoDB tests use mocked boto3 — no real AWS calls.
-- All route tests use `tmp_path` + `monkeypatch` for DB isolation.
+### `app/core/rate_limit/storage_dynamodb.py`
 
-## 9. Security notes
+- `consume_write_quota(feature_name, client_ip)` — uses DynamoDB conditional update to atomically increment a counter.
+- Limits: 5 writes per 12-hour fixed window per feature per IP hash.
+- Uses hashed IP (SHA-256 truncated) as part of the deterministic sort key.
+- The sort key format: `rate_limit#{feature_name}#{ip_hash}#{window_start_epoch}`.
+- No table creation at runtime.
+- No AWS calls at import time.
 
-- This step does not introduce auth or CSRF tokens. The app has no user concept or authentication. CSRF should be revisited when auth or user-specific record ownership is introduced.
+## 7. Route behavior
+
+- `POST /broken-clock/calculate` — call limiter **after** request parsing and validation succeeds, **immediately before** the database write. Invalidation errors (400) must not consume quota.
+- `POST /water-meter/readings` — same placement: after validation, before DB write.
+- If the limiter allows the request but the subsequent DB write fails, the consumed quota is accepted as a tradeoff (no rollback mechanism in this step).
+- 429 response shape: `{"error": "Rate limit exceeded. Try again later."}` with status 429 and `Retry-After: <seconds>` header (integer).
+- Rate-limited requests must not write to the feature storage.
+
+## 8. IP handling
+
+- Use `request.remote_addr` for MVP (Flask's direct client IP from the request socket).
+- Hash the IP with SHA-256 (first 16 hex chars) before storing in the database.
+- `X-Forwarded-For` and `ProxyFix` are out of scope for this step but documented as a follow-up.
+
+## 9. Test strategy
+
+- All existing 107 tests pass unchanged.
+- SQLite limiter tests:
+  - First 5 writes are allowed.
+  - 6th write in the same fixed window is blocked.
+  - A new fixed window resets the quota.
+  - Different IPs have independent quotas.
+- DynamoDB limiter tests:
+  - Uses mocked boto3 — no real AWS calls.
+  - First 5 writes allowed via conditional update.
+  - 6th write blocked.
+  - Hashed IP is stored, not raw IP.
+  - Sort key uses the deterministic `rate_limit#...` format.
+- Route tests:
+  - 5 normal POSTs succeed; 6th returns 429 JSON.
+  - 429 response contains `Retry-After` header (integer).
+  - Validating error (400) does not consume quota.
+  - Existing route behavior (validation errors, success redirects) unchanged.
 
 ## 10. Follow-up steps
 
-- Add edit functionality for readings.
-- Add auth when user-id scoping is needed.
-- Add CSRF to all destructive POST forms.
+- Add `X-Forwarded-For` / `ProxyFix` support when behind a reverse proxy.
+- Add Terraform DynamoDB TTL for automatic cleanup of expired rate limit items.
+- Add rate limit for DELETE endpoints.
+- Consider moving from app-level limiter to WAF-based rate limiting for production.
+- Consider switching to sliding windows if fixed-window boundary bursts become an issue.
