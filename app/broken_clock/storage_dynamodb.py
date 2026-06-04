@@ -34,11 +34,11 @@ def get_db_path():
     return None
 
 
-def ensure_db_initialized(db_path):
+def ensure_db_initialized(_db_path):
     """No-op — DynamoDB table is created by Terraform, not at runtime."""
 
 
-def save_calculation(db_path, real_observed_time, wrong_observed_time,
+def save_calculation(_db_path, real_observed_time, wrong_observed_time,
                      offset_minutes, offset_human, clock_status,
                      target_wrong_times, reference_points):
     """Insert a successful calculation into DynamoDB."""
@@ -59,7 +59,7 @@ def save_calculation(db_path, real_observed_time, wrong_observed_time,
     })
 
 
-def get_history(db_path):
+def get_history(_db_path):
     """Return all saved calculations, newest first, with JSON fields decoded."""
     app_id = os.environ.get("APP_ID", APP_ID_DEFAULT)
     table = _get_table()
