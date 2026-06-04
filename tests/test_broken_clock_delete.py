@@ -88,25 +88,21 @@ def _make_dynamodb_mod(monkeypatch):
 
 def test_dynamodb_delete_existing_record_returns_true(monkeypatch):
     mod, fake_db = _make_dynamodb_mod(monkeypatch)
-    table = fake_db.Table("test-table")
 
-    # Insert a record directly
-    table.put_item(Item={
-        "app_id": "test-app",
-        "created_at": "2026-01-01T12:00:00Z",
-        "real_observed_time": "10:00",
-        "wrong_observed_time": "11:00",
-        "offset_minutes": 60,
-        "offset_human": "+60 minutes",
-        "clock_status": "fast",
-        "target_wrong_times": json.dumps(["07:00"]),
-        "reference_points": json.dumps([{"wrong_time": "07:00", "real_time": "06:00", "day_shift": 0}]),
-    })
+    # Save via mod.save_calculation (generates stable id)
+    mod.save_calculation(
+        None, "10:00", "11:00", 60, "+60 minutes", "fast",
+        ["07:00"], [{"wrong_time": "07:00", "real_time": "06:00", "day_shift": 0}],
+    )
 
-    # Ordinal id = 1
-    result = mod.delete_history_record(1, None)
+    records = mod.get_history(None)
+    assert len(records) == 1
+    record_id = records[0]["id"]
+    assert isinstance(record_id, str)
+
+    result = mod.delete_history_record(record_id, None)
     assert result is True
-    assert len(table.items) == 0
+    assert len(fake_db.Table("test-table").items) == 0
 
 
 def test_dynamodb_delete_missing_record_returns_false(monkeypatch):
@@ -149,7 +145,8 @@ def test_delete_json_success(client):
     assert response.status_code == 200
     data = response.get_json()
     assert data["deleted"] is True
-    assert data["id"] == rid
+    # SQLite returns int id, route returns string from URL param
+    assert str(data["id"]) == str(rid)
 
 
 def test_delete_json_not_found(client):
@@ -157,7 +154,8 @@ def test_delete_json_not_found(client):
     assert response.status_code == 404
     data = response.get_json()
     assert "error" in data
-    assert data["id"] == 9999
+    # Route returns string id from URL param
+    assert data["id"] == "9999"
 
 
 def test_delete_html_post_redirects(client):

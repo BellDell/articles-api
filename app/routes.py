@@ -342,10 +342,10 @@ def register_routes(app):
         view_func=broken_clock_calculate, methods=["POST"],
     )
     app.add_url_rule(
-        "/broken-clock/history/<int:record_id>", endpoint="delete_history",
+        "/broken-clock/history/<record_id>", endpoint="delete_history",
         view_func=delete_history, methods=["DELETE"],
     )
     app.add_url_rule(
-        "/broken-clock/history/<int:record_id>/delete", endpoint="delete_history_html",
+        "/broken-clock/history/<record_id>/delete", endpoint="delete_history_html",
         view_func=delete_history_html, methods=["POST"],
     )
