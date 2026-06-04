@@ -66,15 +66,16 @@
           </p>
         </div>
       {% else %}
-        <div class="hist-row hist-header">
+        <div class="hist-row hist-header" style="grid-template-columns:1fr 1fr 1fr 120px 80px 60px">
           <span>When</span>
           <span>Actual → Broken</span>
           <span>Offset</span>
           <span>Status</span>
           <span class="col-refs">Refs</span>
+          <span></span>
         </div>
         {% for r in records %}
-        <div class="hist-row">
+        <div class="hist-row" style="grid-template-columns:1fr 1fr 1fr 120px 80px 60px">
           <span class="col-ts">{{ r.created_at[:16].replace('T',' ') }}</span>
           <span class="col-time">{{ r.real_observed_time }} → {{ r.wrong_observed_time }}</span>
           <span class="col-off">{{ r.offset_human }}</span>
@@ -83,6 +84,15 @@
           </span>
           <span class="col-refs" style="color:#6b7280;font-size:0.78rem">
             {{ r.ref_points_display }}
+          </span>
+          <span>
+            <form action="/broken-clock/history/{{ r.id }}/delete" method="post">
+              <button type="submit" class="button is-small is-danger is-light"
+                      style="border-radius:6px;font-size:0.72rem"
+                      onclick="return confirm('Delete this record?')">
+                Delete
+              </button>
+            </form>
           </span>
         </div>
         {% endfor %}

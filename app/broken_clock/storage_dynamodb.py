@@ -97,3 +97,36 @@ def get_history(_db_path):
         })
 
     return rows
+
+
+def delete_history_record(record_id, _db_path):
+    """Delete a history record by ordinal id. Returns True if deleted, False if not found."""
+    app_id = os.environ.get("APP_ID", APP_ID_DEFAULT)
+    table = _get_table()
+
+    # Query all items for this app_id, newest first
+    response = table.query(
+        KeyConditionExpression="app_id = :aid",
+        ExpressionAttributeValues={":aid": app_id},
+        ScanIndexForward=False,
+    )
+    items = response.get("Items", [])
+    while "LastEvaluatedKey" in response:
+        response = table.query(
+            KeyConditionExpression="app_id = :aid",
+            ExpressionAttributeValues={":aid": app_id},
+            ScanIndexForward=False,
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
+
+    # Find the item matching the 1-based ordinal id
+    if record_id < 1 or record_id > len(items):
+        return False
+
+    target = items[record_id - 1]
+    table.delete_item(Key={
+        "app_id": target["app_id"],
+        "created_at": target["created_at"],
+    })
+    return True

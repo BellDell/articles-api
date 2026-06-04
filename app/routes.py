@@ -5,7 +5,7 @@ It only depends on app.broken_clock (pure calculation helpers)
 and app.broken_clock_storage (SQLite storage helpers).
 """
 
-from flask import request, jsonify, render_template
+from flask import request, jsonify, render_template, redirect
 from datetime import datetime
 
 from app.broken_clock.domain import (
@@ -18,7 +18,7 @@ from app.broken_clock.domain import (
     format_explanation,
     format_compact_ref_point,
 )
-from app.broken_clock.storage import get_db_path, save_calculation, get_history
+from app.broken_clock.storage import get_db_path, save_calculation, get_history, delete_history_record
 
 
 BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
@@ -288,6 +288,34 @@ def broken_clock_calculate():
     }), 200
 
 
+def delete_history(record_id):
+    """DELETE /broken-clock/history/<record_id> — JSON API."""
+    db_path = get_db_path()
+    try:
+        deleted = delete_history_record(record_id, db_path)
+    except Exception as e:
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+
+    if not deleted:
+        return jsonify({"error": "History record not found", "id": record_id}), 404
+
+    return jsonify({"deleted": True, "id": record_id}), 200
+
+
+def delete_history_html(record_id):
+    """POST /broken-clock/history/<record_id>/delete — HTML form fallback."""
+    db_path = get_db_path()
+    try:
+        deleted = delete_history_record(record_id, db_path)
+    except Exception as e:
+        return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message=f"Database error: {e}"), 500
+
+    if not deleted:
+        return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message="History record not found."), 404
+
+    return redirect("/broken-clock/history")
+
+
 def register_routes(app):
     app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/authors", endpoint="get_authors", view_func=get_authors)
@@ -312,4 +340,12 @@ def register_routes(app):
     app.add_url_rule(
         "/broken-clock/calculate", endpoint="broken_clock_calculate",
         view_func=broken_clock_calculate, methods=["POST"],
+    )
+    app.add_url_rule(
+        "/broken-clock/history/<int:record_id>", endpoint="delete_history",
+        view_func=delete_history, methods=["DELETE"],
+    )
+    app.add_url_rule(
+        "/broken-clock/history/<int:record_id>/delete", endpoint="delete_history_html",
+        view_func=delete_history_html, methods=["POST"],
     )

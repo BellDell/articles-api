@@ -58,3 +58,12 @@ def get_history(db_path):
     else:
         from app.broken_clock.storage_sqlite import get_history as _fn
     return _fn(db_path)
+
+
+def delete_history_record(record_id, db_path=None):
+    backend = _get_backend()
+    if backend == "dynamodb":
+        from app.broken_clock.storage_dynamodb import delete_history_record as _fn
+    else:
+        from app.broken_clock.storage_sqlite import delete_history_record as _fn
+    return _fn(record_id, db_path)
