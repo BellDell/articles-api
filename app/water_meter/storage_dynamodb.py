@@ -6,6 +6,7 @@ items are separated from Broken Clock items via ``entity_type``.
 
 import os
 import uuid
+from decimal import Decimal
 from datetime import datetime, timezone
 
 from app.core.storage.dynamodb import get_dynamodb_table, query_all_items
@@ -38,6 +39,7 @@ def save_reading(_db_path, reading_value, reading_date,
     """Insert a water meter reading into DynamoDB."""
     app_id = _app_id()
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    reading_value_decimal = Decimal(str(reading_value))
 
     table = _table()
     table.put_item(Item={
@@ -47,7 +49,7 @@ def save_reading(_db_path, reading_value, reading_date,
         "entity_type": ENTITY_TYPE,
         "reading_date": reading_date,
         "meter_name": meter_name,
-        "reading_value": reading_value,
+        "reading_value": reading_value_decimal,
         "unit": unit,
         "notes": notes,
     })
@@ -64,12 +66,15 @@ def get_readings(_db_path):
         if item.get("entity_type") != ENTITY_TYPE:
             continue
         id_val = item.get("id", item["created_at"])
+        reading_value = item["reading_value"]
+        if isinstance(reading_value, Decimal):
+            reading_value = float(reading_value)
         rows.append({
             "id": id_val,
             "created_at": item["created_at"],
             "reading_date": item["reading_date"],
             "meter_name": item["meter_name"],
-            "reading_value": item["reading_value"],
+            "reading_value": reading_value,
             "unit": item["unit"],
             "notes": item.get("notes", ""),
         })

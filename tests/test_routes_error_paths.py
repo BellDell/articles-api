@@ -16,8 +16,9 @@ import app.routes
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
     flask_app.config["TESTING"] = True
+    os.environ["APP_DB_PATH"] = str(tmp_path / "test_err.db")
     with flask_app.test_client() as client:
         yield client
 
@@ -70,6 +71,8 @@ def test_calculate_db_error_returns_html_500(monkeypatch, client):
     assert "text/html" in response.content_type
     text = response.get_data(as_text=True)
     assert "Error" in text
+    assert "/broken-clock" in text
+    assert "Calculate again" in text
 
 
 # ── Broken Clock history DB error paths ──
@@ -97,3 +100,38 @@ def test_history_db_error_returns_html_500(monkeypatch, client):
     assert "text/html" in response.content_type
     text = response.get_data(as_text=True)
     assert "Error" in text
+
+
+def test_water_meter_save_error_returns_html_with_water_meter_back_link(monkeypatch, client):
+    def _raise(*args, **kwargs):
+        raise RuntimeError("DB failure")
+
+    monkeypatch.setattr(app.routes.wm_storage, "save_reading", _raise)
+
+    response = client.post("/water-meter/readings", data={
+        "reading_value": "123.45",
+        "reading_date": "2026-06-01",
+    })
+
+    assert response.status_code == 500
+    assert "text/html" in response.content_type
+    text = response.get_data(as_text=True)
+    assert "/water-meter" in text
+    assert "Add reading" in text
+    assert "Calculate again" not in text
+
+
+def test_water_meter_history_error_returns_html_with_water_meter_back_link(monkeypatch, client):
+    def _raise(*args, **kwargs):
+        raise RuntimeError("DB failure")
+
+    monkeypatch.setattr(app.routes.wm_storage, "get_readings", _raise)
+
+    response = client.get("/water-meter/history", headers={"Accept": "text/html"})
+
+    assert response.status_code == 500
+    assert "text/html" in response.content_type
+    text = response.get_data(as_text=True)
+    assert "/water-meter" in text
+    assert "Add reading" in text
+    assert "Calculate again" not in text

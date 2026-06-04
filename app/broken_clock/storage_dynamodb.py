@@ -32,6 +32,13 @@ def _query_broken_clock_items():
     return query_all_items(table, "app_id", app_id)
 
 
+def _is_broken_clock_item(item):
+    """Return True if the item is a Broken Clock record (not rate-limit or other)."""
+    et = item.get("entity_type")
+    # Legacy items have no entity_type; new items have "broken_clock"
+    return et is None or et == "broken_clock"
+
+
 def get_db_path():
     """Return None — DynamoDB does not use a file path."""
     return None
@@ -69,6 +76,8 @@ def get_history(_db_path):
 
     rows = []
     for item in items:
+        if not _is_broken_clock_item(item):
+            continue
         rows.append({
             "id": item.get("id", item["created_at"]),
             "created_at": item["created_at"],
@@ -91,6 +100,8 @@ def delete_history_record(record_id, _db_path):
 
     target = None
     for item in items:
+        if not _is_broken_clock_item(item):
+            continue
         item_id = item.get("id", item["created_at"])
         if str(item_id) == str(record_id):
             target = item

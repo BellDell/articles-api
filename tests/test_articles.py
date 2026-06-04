@@ -9,8 +9,9 @@ from app.app import app
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
     app.config["TESTING"] = True
+    os.environ["APP_DB_PATH"] = str(tmp_path / "test_articles.db")
     with app.test_client() as client:
         yield client
 
