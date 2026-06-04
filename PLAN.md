@@ -1,53 +1,62 @@
-# Plan: Replace DynamoDB ordinal history IDs with stable record IDs
+# Plan: Shared storage infrastructure refactor
 
-## 1. Why
+## 1. Goal
 
-`delete_history_record` on DynamoDB currently uses the ordinal index (1-based position in newest-first query) as the record id. If records are inserted between viewing the list and issuing a delete, the ordinal shifts and the wrong record could be deleted.
+Extract reusable DynamoDB storage plumbing from `app/broken_clock/storage_dynamodb.py` into `app/core/storage/dynamodb.py` — a shared module that future feature packages (Water Meter) can use alongside Broken Clock. The `app/broken_clock/` package keeps its feature-specific logic, storage facade, and backend files.
 
-## 2. What changes
+## 2. Why this refactor is needed before Water Meter
 
-### `save_calculation` (DynamoDB)
+`app/broken_clock/storage_dynamodb.py` contains both generic DynamoDB infrastructure (table lookup, query pagination) and Broken Clock-specific mapping (JSON encoding/decoding of calculation fields). Before a second feature package needs DynamoDB access, these generic parts should live in a shared location to avoid duplication.
 
-- Generate a stable, unique id when saving.
-- Use `uuid.uuid4().hex[:12]` — a short, URL-safe random hex string.
-- Store it as an `id` attribute on the DynamoDB item.
-- No table key change — `app_id` + `created_at` remains the primary key.
+## 3. In scope
 
-### `get_history` (DynamoDB)
+- Create `app/core/storage/` package with `__init__.py`.
+- Create `app/core/storage/dynamodb.py` with generic DynamoDB helpers.
+- Move `_get_table()` and `_query_all_items()` helpers from `app/broken_clock/storage_dynamodb.py` into `app/core/storage/dynamodb.py`.
+- The shared helpers accept a table name argument rather than reading `DYNAMODB_TABLE` from env — the caller is responsible for providing the table name.
+- Update `app/broken_clock/storage_dynamodb.py` to import and use the shared helpers.
+- Keep the Broken Clock `save_calculation`, `get_history`, and `delete_history_record` functions in the Broken Clock package — they contain feature-specific logic.
 
-- Return the stored `id` from the item instead of computing an ordinal.
+## 4. Out of scope
 
-### `delete_history_record` (DynamoDB)
+- No Water Meter implementation.
+- No changes to `app/broken_clock/storage.py` (public facade).
+- No changes to `app/broken_clock/storage_sqlite.py`.
+- No route or JSON response shape changes.
+- No Terraform or App Runner changes.
+- No auth or user_id.
+- No migrations.
+- No renaming files to "repository" in this step.
 
-- Query all items for the app_id.
-- Find the item whose stored `id` matches the given record_id.
-- Delete using `app_id` + `created_at` key.
-- Return `True` if found and deleted, `False` otherwise.
+## 5. Target responsibilities
 
-### SQLite
+### `app/core/storage/dynamodb.py` (new)
 
-- No changes — SQLite already uses stable auto-increment integer ids.
+- `get_dynamodb_table(table_name)` — returns a DynamoDB Table resource. Reads `DYNAMODB_TABLE` from env if `table_name` is `None`.
+- `query_all_items(table, hash_key_name, hash_key_value)` — runs a DynamoDB query with pagination, returns all items sorted newest first (by sort key descending).
+- No Flask dependency. No Broken Clock domain logic.
 
-### Routes
+### `app/broken_clock/storage_dynamodb.py` (updated)
 
-- No changes needed — the `record_id` path parameter is already a string-compatible type.
+- Imports from `app.core.storage.dynamodb`.
+- Calls `get_dynamodb_table()` to get the table.
+- Calls `query_all_items()` for history and delete queries.
+- Keeps all feature-specific logic: JSON encoding/decoding of calculation fields, history response shape, delete by stable id.
 
-### Other
+## 6. Backward compatibility rules
 
-- The UUID hex id is random enough for single-user use. Auth/user scoping is a separate step.
-
-## 3. What stays the same
-
-- `app_id` + `created_at` as DynamoDB table key.
-- All route URLs and HTTP method contracts.
-- All JSON response shapes (the `id` field type becomes string instead of int for DynamoDB responses; already forward-compatible).
+- All public function signatures in `app/broken_clock/storage.py` unchanged.
+- All DynamoDB behavior (table name, env vars, pagination, ordering, response shapes) unchanged.
 - SQLite behavior unchanged.
-- All existing tests pass with minimal updates.
+- All 60 existing tests pass without modification.
 
-## 4. Tests
+## 7. Test strategy
 
-- `test_dynamodb_save_calculation_writes_item` — verify item has a non-empty `id` attribute.
-- `test_dynamodb_get_history_returns_stable_id` — create two records, verify each has a unique string id.
-- `test_dynamodb_delete_history_record_by_stable_id` — save a record, delete by its stored id, verify success.
-- `test_dynamodb_delete_history_record_not_found` — delete with a random unknown id returns False.
-- Existing SQLite and route tests unchanged.
+- All 60 existing tests pass unchanged.
+- No test changes needed — the shared helpers are tested indirectly through existing DynamoDB tests.
+- If desired, a separate test file for the shared helpers can be added in a follow-up step.
+
+## 8. Follow-up steps
+
+- Implement Water Meter feature with its own storage backends (`app/water_meter/storage_sqlite.py`, `app/water_meter/storage_dynamodb.py`) using the shared infrastructure.
+- Optionally add a shared SQLite helper to `app/core/storage/sqlite.py` if table creation and connection lifecycle logic can be parameterized.
