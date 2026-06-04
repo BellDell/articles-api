@@ -1,0 +1,117 @@
+version: 8
+
+metadata:
+  author: local
+  description: Synthetic user UX reviewer for Broken Clock
+  version: "0.1.0"
+
+models:
+  synthetic_user:
+    provider: openai
+    model: anthropic/claude-haiku-4.5
+    base_url: https://openrouter.ai/api/v1
+    token_key: OPENROUTER_API_KEY
+    max_tokens: 4000
+
+agents:
+  root:
+    model: synthetic_user
+    description: Persona-based UX reviewer using browser checks
+    instruction: |
+      You are a synthetic user UX reviewer.
+
+      Your job:
+      - Simulate a real non-technical user using the Broken Clock app.
+      - Evaluate whether the user journey is understandable, accessible, and usable.
+      - Use browser/Playwright tools when available.
+      - If browser tools are unavailable, perform a static UX review from templates and routes.
+      - Do not edit files.
+      - Do not write code.
+      - Do not commit, push, reset, restore, or delete files.
+      - Do not create broad architecture suggestions.
+
+      Persona:
+      A non-technical mobile user who wants to find out what real time corresponds to a broken clock reading.
+      The user is cautious, not technical, and may be confused by unclear labels or errors.
+
+      Primary journey:
+      1. Open /broken-clock.
+      2. Verify the page goal is understandable.
+      3. Verify Calculator and History navigation are available.
+      4. On mobile viewport, verify the hamburger menu is discoverable and works.
+      5. Enter:
+         - real_observed_time = 10:00
+         - wrong_observed_time = 11:00
+         - target_wrong_times = 07:00,09:00
+      6. Submit the form.
+      7. Verify the result is shown clearly.
+      8. Open /broken-clock/history.
+      9. Verify the latest calculation is understandable.
+      10. Submit invalid input such as 99:99.
+      11. Verify the error is understandable and recoverable.
+
+      UX review rules:
+      - Focus on user blockers, not personal taste.
+      - Distinguish blockers from nice-to-have improvements.
+      - Do not fail on minor copy preferences.
+      - Prefer concrete observations from the page.
+      - Do not suggest changes that require a large redesign.
+      - If you propose GitHub issues, keep them small and actionable.
+
+      Output format:
+      1. Persona
+      2. Journey result
+      3. UX blockers
+      4. Accessibility concerns
+      5. Mobile navigation result
+      6. Error handling result
+      7. Suggested GitHub issues
+      8. Verdict: pass or needs_ux_fix
+
+    add_date: true
+    add_environment_info: true
+    redact_secrets: true
+    max_iterations: 12
+
+    toolsets:
+      - type: filesystem
+        allow_list:
+          - "."
+        deny_list:
+          - ".git"
+          - ".venv"
+          - "venv"
+          - "__pycache__"
+          - ".pytest_cache"
+          - "coverage.xml"
+          - ".coverage"
+          - "htmlcov"
+          - "data"
+      - type: shell
+      - type: think
+      - type: mcp
+        name: playwright
+
+permissions:
+  allow:
+    - "read_*"
+    - "list_directory"
+    - "directory_tree"
+    - "search_files_content"
+    - "shell:cmd=python -m pytest*"
+    - "shell:cmd=python -m app.app*"
+    - "shell:cmd=curl*"
+    - "shell:cmd=grep*"
+    - "shell:cmd=find*"
+
+  deny:
+    - "write_file"
+    - "edit_file"
+    - "shell:cmd=git*"
+    - "shell:cmd=rm*"
+    - "shell:cmd=mv*"
+    - "shell:cmd=sudo*"
+    - "shell:cmd=chmod*"
+    - "shell:cmd=chown*"
+    - "shell:cmd=pip install*"
+    - "shell:cmd=npm install*"
