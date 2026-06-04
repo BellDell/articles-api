@@ -11,19 +11,8 @@ from contextlib import closing
 from datetime import datetime, timezone
 
 
-def _validate_backend():
-    """Raise ValueError if STORAGE_BACKEND is not a supported value."""
-    backend = os.environ.get("STORAGE_BACKEND", "sqlite") or "sqlite"
-    if backend != "sqlite":
-        raise ValueError(
-            f"Unsupported STORAGE_BACKEND: {backend!r}. "
-            f"Only 'sqlite' is implemented."
-        )
-
-
 def get_db_path():
     """Return the database path from APP_DB_PATH env var or default."""
-    _validate_backend()
     return os.environ.get("APP_DB_PATH", "data/app.db")
 
 
@@ -32,7 +21,6 @@ def ensure_db_initialized(db_path):
 
     Idempotent — safe to call multiple times.
     """
-    _validate_backend()
     db_dir = os.path.dirname(db_path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)

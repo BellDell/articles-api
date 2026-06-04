@@ -41,9 +41,9 @@ def test_sqlite_backend_is_sqlite(monkeypatch):
 
 
 def test_unsupported_backend_raises_on_function_call(monkeypatch):
-    """Import succeeds but calling a function raises ValueError."""
-    monkeypatch.setenv("STORAGE_BACKEND", "dynamodb")
+    """Import succeeds but calling a function raises ValueError for unknown backends."""
+    monkeypatch.setenv("STORAGE_BACKEND", "postgres")
     mod = _reload_storage()
     import pytest
-    with pytest.raises(ValueError, match="dynamodb"):
+    with pytest.raises(ValueError, match="postgres"):
         mod.get_db_path()
