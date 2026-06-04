@@ -74,7 +74,21 @@ def find_author(author_id):
 def make_broken_clock_error_response(message, is_json_request, status_code=400):
     if is_json_request:
         return jsonify({"error": message}), status_code
-    return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message=message), status_code
+    return render_template(
+        BROKEN_CLOCK_ERROR_TEMPLATE,
+        message=message,
+        back_url="/broken-clock",
+        back_label="Calculate again",
+    ), status_code
+
+
+def make_water_meter_error_response(message, status_code=400):
+    return render_template(
+        BROKEN_CLOCK_ERROR_TEMPLATE,
+        message=message,
+        back_url="/water-meter",
+        back_label="Add reading",
+    ), status_code
 
 
 def _parse_request_data():
@@ -216,7 +230,12 @@ def broken_clock_history():
         history = get_history(db_path)
     except Exception as e:
         if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML:
-            return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message=f"Database error: {e}"), 500
+            return render_template(
+                BROKEN_CLOCK_ERROR_TEMPLATE,
+                message=f"Database error: {e}",
+                back_url="/broken-clock",
+                back_label="Calculate again",
+            ), 500
         return jsonify({"error": f"Database error: {str(e)}"}), 500
 
     wants_html = request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML
@@ -267,6 +286,8 @@ def broken_clock_calculate():
         return render_template(
             BROKEN_CLOCK_ERROR_TEMPLATE,
             message=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            back_url="/broken-clock",
+            back_label="Calculate again",
         ), 429
 
     try:
@@ -278,7 +299,12 @@ def broken_clock_calculate():
         if request.is_json:
             return jsonify({"error": f"Database error: {str(e)}"}), 500
         else:
-            return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message="Could not save calculation."), 500
+            return render_template(
+                BROKEN_CLOCK_ERROR_TEMPLATE,
+                message="Could not save calculation.",
+                back_url="/broken-clock",
+                back_label="Calculate again",
+            ), 500
 
     if not request.is_json:
         return render_template(
@@ -322,10 +348,20 @@ def delete_history_html(record_id):
     try:
         deleted = delete_history_record(record_id, db_path)
     except Exception as e:
-        return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message=f"Database error: {e}"), 500
+        return render_template(
+            BROKEN_CLOCK_ERROR_TEMPLATE,
+            message=f"Database error: {e}",
+            back_url="/broken-clock",
+            back_label="Calculate again",
+        ), 500
 
     if not deleted:
-        return render_template(BROKEN_CLOCK_ERROR_TEMPLATE, message="History record not found."), 404
+        return render_template(
+            BROKEN_CLOCK_ERROR_TEMPLATE,
+            message="History record not found.",
+            back_url="/broken-clock",
+            back_label="Calculate again",
+        ), 404
 
     return redirect("/broken-clock/history")
 
@@ -365,6 +401,8 @@ def water_meter_add_reading():
         return render_template(
             "broken_clock/error.html",
             message=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            back_url="/water-meter",
+            back_label="Add reading",
         ), 429
 
     db_path = wm_storage.get_db_path()
@@ -380,7 +418,7 @@ def water_meter_add_reading():
     except Exception as e:
         if request.is_json:
             return jsonify({"error": f"Database error: {str(e)}"}), 500
-        return render_template("broken_clock/error.html", message="Could not save reading."), 500
+        return make_water_meter_error_response("Could not save reading.", 500)
 
     if request.is_json:
         return jsonify({"success": True}), 201
@@ -393,7 +431,7 @@ def water_meter_history():
         readings = wm_storage.get_readings(db_path)
     except Exception as e:
         if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML:
-            return render_template("broken_clock/error.html", message=f"Database error: {e}"), 500
+            return make_water_meter_error_response(f"Database error: {e}", 500)
         return jsonify({"error": f"Database error: {str(e)}"}), 500
 
     if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == APPLICATION_JSON:
@@ -421,10 +459,10 @@ def delete_water_meter_reading_html(record_id):
     try:
         deleted = wm_storage.delete_reading(record_id, db_path)
     except Exception as e:
-        return render_template("broken_clock/error.html", message=f"Database error: {e}"), 500
+        return make_water_meter_error_response(f"Database error: {e}", 500)
 
     if not deleted:
-        return render_template("broken_clock/error.html", message="Reading not found."), 404
+        return make_water_meter_error_response("Reading not found.", 404)
 
     return redirect("/water-meter/history")
 

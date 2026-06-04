@@ -21,9 +21,9 @@
     <div class="bc-card">
       <h1 class="title is-4">Error</h1>
       <div class="err-msg">{{ message }}</div>
-      <a class="button bc-btn" href="/broken-clock"
+      <a class="button bc-btn" href="{{ back_url|default('/broken-clock') }}"
          style="background:linear-gradient(135deg,#667eea,#764ba2)!important">
-        ← Calculate again
+        ← {{ back_label|default('Calculate again') }}
       </a>
     </div>
   </div>

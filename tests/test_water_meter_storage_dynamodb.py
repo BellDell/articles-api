@@ -5,6 +5,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
+from decimal import Decimal
 
 
 class FakeTable:
@@ -73,13 +74,28 @@ def test_save_writes_all_fields(monkeypatch):
     mod.save_reading(None, 50.0, "2026-07-01", meter_name="garden", unit="gallons", notes="weekly")
 
     item = fake_db.Table("test-table").items[0]
-    assert item["reading_value"] == 50.0
+    assert item["reading_value"] == Decimal("50.0")
     assert item["reading_date"] == "2026-07-01"
     assert item["meter_name"] == "garden"
     assert item["unit"] == "gallons"
     assert item["notes"] == "weekly"
     assert item["app_id"] == "test-app"
     assert "created_at" in item
+
+
+def test_save_stores_reading_value_as_decimal(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_wm_dynamodb()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    mod.save_reading(None, 123.45, "2026-06-01")
+
+    item = fake_db.Table("test-table").items[0]
+    assert item["reading_value"] == Decimal("123.45")
+    assert not isinstance(item["reading_value"], float)
 
 
 def test_get_readings_returns_only_water_meter(monkeypatch):
@@ -100,7 +116,7 @@ def test_get_readings_returns_only_water_meter(monkeypatch):
         "entity_type": "water_meter",
         "reading_date": "2026-06-01",
         "meter_name": "main",
-        "reading_value": 100.0,
+        "reading_value": Decimal("100.0"),
         "unit": "m3",
         "notes": "",
     })
@@ -144,7 +160,7 @@ def test_get_readings_newest_first(monkeypatch):
         "entity_type": "water_meter",
         "reading_date": "2026-01-01",
         "meter_name": "main",
-        "reading_value": 100.0,
+        "reading_value": Decimal("100.0"),
         "unit": "m3",
         "notes": "",
     })
@@ -155,7 +171,7 @@ def test_get_readings_newest_first(monkeypatch):
         "entity_type": "water_meter",
         "reading_date": "2026-06-01",
         "meter_name": "main",
-        "reading_value": 200.0,
+        "reading_value": Decimal("200.0"),
         "unit": "m3",
         "notes": "",
     })
@@ -182,7 +198,7 @@ def test_get_readings_shape_matches_sqlite(monkeypatch):
         "entity_type": "water_meter",
         "reading_date": "2026-06-01",
         "meter_name": "main",
-        "reading_value": 123.45,
+        "reading_value": Decimal("123.45"),
         "unit": "m3",
         "notes": "monthly",
     })
@@ -193,6 +209,32 @@ def test_get_readings_shape_matches_sqlite(monkeypatch):
                               "reading_value", "unit", "notes"}
     assert isinstance(r["id"], str)
     assert isinstance(r["reading_value"], (int, float))
+
+
+def test_get_readings_converts_decimal_back_to_float(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_wm_dynamodb()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    table = fake_db.Table("test-table")
+    table.put_item(Item={
+        "id": "stable_id_002",
+        "app_id": "test-app",
+        "created_at": "2026-06-02T12:00:00Z",
+        "entity_type": "water_meter",
+        "reading_date": "2026-06-02",
+        "meter_name": "main",
+        "reading_value": Decimal("987.65"),
+        "unit": "m3",
+        "notes": "",
+    })
+
+    readings = mod.get_readings(None)
+    assert readings[0]["reading_value"] == 987.65
+    assert isinstance(readings[0]["reading_value"], float)
 
 
 def test_missing_table_raises(monkeypatch):
