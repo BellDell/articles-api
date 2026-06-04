@@ -92,3 +92,27 @@ def get_meter_names(_db_path):
             names.add(name)
 
     return sorted(names)
+
+
+def delete_reading(record_id, _db_path):
+    """Delete a Water Meter reading by stable id. Returns True if deleted, False if not found."""
+    app_id = _app_id()
+    table = _table()
+    items = query_all_items(table, "app_id", app_id)
+
+    target = None
+    for item in items:
+        if item.get("entity_type") != ENTITY_TYPE:
+            continue
+        if str(item.get("id", "")) == str(record_id):
+            target = item
+            break
+
+    if target is None:
+        return False
+
+    table.delete_item(Key={
+        "app_id": target["app_id"],
+        "created_at": target["created_at"],
+    })
+    return True

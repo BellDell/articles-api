@@ -85,3 +85,12 @@ def get_meter_names(db_path):
             "ORDER BY meter_name"
         )
         return [row[0] for row in cursor.fetchall()]
+
+
+def delete_reading(record_id, db_path):
+    """Delete a reading by id. Returns True if deleted, False if not found."""
+    ensure_db_initialized(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        cursor = conn.execute("DELETE FROM water_meter_readings WHERE id = ?", (record_id,))
+        conn.commit()
+        return cursor.rowcount > 0

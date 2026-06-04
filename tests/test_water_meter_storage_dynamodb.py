@@ -21,6 +21,11 @@ class FakeTable:
         matching.sort(key=lambda it: it.get("created_at", ""), reverse=True)
         return {"Items": matching}
 
+    def delete_item(self, Key):
+        self.items = [it for it in self.items
+                      if not (it.get("app_id") == Key.get("app_id")
+                              and it.get("created_at") == Key.get("created_at"))]
+
 
 class FakeDynamoDB:
     def __init__(self):
@@ -244,3 +249,58 @@ def test_get_meter_names_empty_when_no_items(monkeypatch):
 
     names = mod.get_meter_names(None)
     assert names == []
+
+
+def test_dynamodb_delete_existing_water_meter(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_wm_dynamodb()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    mod.save_reading(None, 100, "2026-06-01")
+    readings = mod.get_readings(None)
+    rid = readings[0]["id"]
+
+    result = mod.delete_reading(rid, None)
+    assert result is True
+    assert len(mod.get_readings(None)) == 0
+
+
+def test_dynamodb_delete_missing_returns_false(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_wm_dynamodb()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    result = mod.delete_reading("nonexistent-id", None)
+    assert result is False
+
+
+def test_dynamodb_delete_does_not_delete_broken_clock(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_wm_dynamodb()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    table = fake_db.Table("test-table")
+    # Water Meter item
+    table.put_item(Item={"app_id": "test-app", "created_at": "t1", "entity_type": "water_meter",
+                         "id": "wm001", "reading_date": "1", "reading_value": 1, "unit": "m3"})
+    # Broken Clock item
+    table.put_item(Item={"app_id": "test-app", "created_at": "t2", "entity_type": "broken_clock",
+                         "id": "wm001", "real_observed_time": "10:00"})
+
+    # Delete by id that exists in both — should only delete water_meter
+    result = mod.delete_reading("wm001", None)
+    assert result is True
+    remaining = mod.get_readings(None)
+    assert len(remaining) == 0  # water_meter deleted
+    # Broken Clock item should still exist
+    assert len(table.items) == 1
+    assert table.items[0]["entity_type"] == "broken_clock"

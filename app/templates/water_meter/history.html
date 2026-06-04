@@ -20,6 +20,7 @@
             <th>Value</th>
             <th>Unit</th>
             <th>Notes</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -30,6 +31,13 @@
             <td style="color:#a78bfa;font-weight:600">{{ r.reading_value }}</td>
             <td>{{ r.unit }}</td>
             <td style="color:#6b7280">{{ r.notes }}</td>
+            <td>
+              <form action="/water-meter/readings/{{ r.id }}/delete" method="post"
+                    onsubmit="return confirm('Delete this reading?')" style="margin:0">
+                <button type="submit" class="button is-small is-danger is-light"
+                        style="border-radius:6px;font-size:0.72rem">Delete</button>
+              </form>
+            </td>
           </tr>
           {% endfor %}
         </tbody>

@@ -1,80 +1,107 @@
-# Plan: Water Meter meter name suggestions
+# Plan: Delete individual Water Meter readings
 
 ## 1. Goal
 
-Improve the Water Meter form by suggesting existing meter names via an HTML `<datalist>` while still allowing the user to type a new name. The suggestions are loaded from stored data (SQLite or DynamoDB).
+Add the ability to delete individual Water Meter reading records from both SQLite and DynamoDB backends. Records can be removed via a JSON API or an HTML form POST on the history page.
 
-## 2. UX behavior
+## 2. In scope
 
-- The meter name input uses an HTML `<input>` with an associated `<datalist>` element.
-- The datalist is populated with distinct `meter_name` values from existing readings.
-- The user can pick a name from the suggestions or type a new one.
-- If the field is left blank, it still defaults to `"main"` on submission (unchanged).
-- The input `name` attribute remains `meter_name` so POST handling is unchanged.
+- Add `delete_reading(record_id)` to the storage facade.
+- Add SQLite implementation (delete by id, return True/False).
+- Add DynamoDB implementation (query by app_id, filter entity_type="water_meter", find matching id, delete by app_id + created_at, return True/False).
+- Add `DELETE /water-meter/readings/<record_id>` JSON route.
+- Add `POST /water-meter/readings/<record_id>/delete` HTML fallback route.
+- Add a delete button per row on the Water Meter history page.
+- Add tests for storage (SQLite and DynamoDB) and routes (JSON and HTML).
 
-## 3. In scope
+## 3. Out of scope
 
-- Add `get_meter_names()` to the Water Meter storage facade.
-- **No new JSON endpoint** — meter names are rendered into the HTML template only.
-- Existing JSON response shapes unchanged.
-- Existing POST /water-meter/readings behavior unchanged.
-- Add SQLite implementation: query distinct `meter_name` values from `water_meter_readings`.
-- Add DynamoDB implementation: query items for `app_id`, filter `entity_type="water_meter"`, collect distinct `meter_name` values.
-- Update `GET /water-meter` route to pass meter names to the template.
-- Update the form template to render an `<input>` with `<datalist>`.
-- Add tests for storage (both SQLite and DynamoDB), route, and template.
-
-## 4. Out of scope
-
-- No delete or edit readings.
+- No bulk delete or delete-all.
+- No edit readings.
+- No auth or CSRF implementation.
 - No storage schema changes.
 - No DynamoDB key schema changes.
-- No Terraform, Docker, or GitHub Actions changes.
-- No auth, charts, or user_id.
+- No Terraform, App Runner, Docker, or GitHub Actions changes.
 - No changes to Broken Clock behavior.
+
+## 4. Route / API behavior
+
+### JSON route: `DELETE /water-meter/readings/<record_id>`
+
+- Deletes the record with the given id.
+- Returns `{"deleted": True, "id": <id>}` with status 200 on success.
+- Returns `{"error": "Reading not found", "id": <id>}` with status 404 on miss.
+- Returns JSON error with status 500 on storage failure.
+
+### HTML fallback route: `POST /water-meter/readings/<record_id>/delete`
+
+- Deletes the record with the given id.
+- Redirects to `/water-meter/history` with 302 on success.
+- On failure, renders an error page with 404 or 500.
+- The `<record_id>` path parameter accepts strings (DynamoDB stable UUID ids are strings).
 
 ## 5. Storage responsibilities
 
 ### Facade (`app/water_meter/storage.py`)
 
-- Add `get_meter_names(db_path)` dispatching by `STORAGE_BACKEND`.
+- Add `delete_reading(record_id, db_path)` dispatching by `STORAGE_BACKEND`.
+- `record_id` is the stable id (SQLite int, DynamoDB UUID string).
 
 ### SQLite (`app/water_meter/storage_sqlite.py`)
 
-- Query: `SELECT DISTINCT meter_name FROM water_meter_readings ORDER BY meter_name`.
-- Return a list of strings.
+- `DELETE FROM water_meter_readings WHERE id = ?`
+- Return True if a row was deleted, False otherwise.
+- Existing schema unchanged.
 
 ### DynamoDB (`app/water_meter/storage_dynamodb.py`)
 
-- Use **Query** by `app_id` (the DynamoDB partition key) — never Scan.
-- Filter items where `entity_type="water_meter"` client-side after Query.
-- Collect distinct `meter_name` values and return them sorted alphabetically.
-- Do not change the existing key schema (`app_id` partition key, `created_at` sort key).
-- Do not add a GSI or Terraform change.
+- Query all items for `app_id`, filter `entity_type="water_meter"`.
+- Find item where stored `id` matches the given `record_id`.
+- Delete using `app_id` + `created_at` key.
+- Return True if deleted, False if not found.
+- Only delete items where `entity_type="water_meter"` — never touch Broken Clock items.
+- Existing schema and key structure unchanged.
 
-## 6. Route/template behavior
+## 6. UI behavior
 
-- `GET /water-meter` calls `get_meter_names(db_path)`.
-- Passes a list named `meter_names` to the template — does not overwrite `meter_name`.
-- Form template renders an `<input name="meter_name">` with `list="meter-name-options"` attribute.
-- The datalist element uses `id="meter-name-options"` — separate from the input name.
-- The `name` attribute remains `meter_name` — POST handling unchanged.
-- Existing error-param behavior for meter_name is preserved.
-- The user can type a new meter name not present in the datalist — no restriction to existing values.
+- Each row in the Water Meter history table gets a delete button.
+- The delete is submitted as `POST /water-meter/readings/<id>/delete`.
+- Consistent Bulma styling with a small danger-colored button.
+- No JavaScript required.
+- The button includes a confirmation dialog via `onclick="return confirm(...)"`.
 
-## 7. Test strategy
+## 7. Backward compatibility rules
 
-- All existing 92 tests pass unchanged.
+- Existing `GET /water-meter/history` behavior unchanged.
+- Existing JSON history response shape unchanged.
+- Existing `POST /water-meter/readings` form submission unchanged.
+- Existing meter-name suggestions unchanged.
+- SQLite remains default.
+- All 98 existing tests pass without modification.
+
+## 8. Test strategy
+
+- All 98 existing tests pass unchanged.
 - New storage tests:
-  - SQLite: `get_meter_names` returns distinct names; returns empty list when no readings.
-  - DynamoDB: returns names only from `entity_type="water_meter"` items; ignores broken_clock items.
+  - SQLite: delete existing reading returns True and record disappears.
+  - SQLite: delete missing reading returns False.
+  - DynamoDB (mocked): delete existing Water Meter item returns True.
+  - DynamoDB: delete missing id returns False.
+  - DynamoDB: only deletes entity_type="water_meter" items, not broken_clock items.
 - New route tests:
-  - GET /water-meter passes meter names to template.
-  - Template renders a `<datalist>` element.
-  - Existing POST behavior unchanged.
+  - `DELETE /water-meter/readings/<id>` valid id returns 200 JSON.
+  - `DELETE /water-meter/readings/<id>` unknown id returns 404 JSON.
+  - `POST /water-meter/readings/<id>/delete` valid id redirects to history.
+  - `POST /water-meter/readings/<id>/delete` unknown id returns 404 HTML.
 - DynamoDB tests use mocked boto3 — no real AWS calls.
-- All tests use `tmp_path` + `monkeypatch` for DB isolation.
+- All route tests use `tmp_path` + `monkeypatch` for DB isolation.
 
-## 8. Follow-up steps
+## 9. Security notes
 
-- None — this is a small isolated UX improvement.
+- This step does not introduce auth or CSRF tokens. The app has no user concept or authentication. CSRF should be revisited when auth or user-specific record ownership is introduced.
+
+## 10. Follow-up steps
+
+- Add edit functionality for readings.
+- Add auth when user-id scoping is needed.
+- Add CSRF to all destructive POST forms.

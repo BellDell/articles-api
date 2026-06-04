@@ -54,3 +54,17 @@ def test_get_meter_names_returns_distinct_sorted(db_path):
 def test_get_meter_names_empty_when_no_readings(db_path):
     names = mod.get_meter_names(db_path)
     assert names == []
+
+
+def test_delete_reading_existing_returns_true(db_path):
+    mod.save_reading(db_path, 100, "2026-06-01")
+    readings = mod.get_readings(db_path)
+    rid = readings[0]["id"]
+    result = mod.delete_reading(rid, db_path)
+    assert result is True
+    assert len(mod.get_readings(db_path)) == 0
+
+
+def test_delete_reading_missing_returns_false(db_path):
+    result = mod.delete_reading(9999, db_path)
+    assert result is False
