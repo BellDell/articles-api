@@ -8,7 +8,7 @@ and app.broken_clock_storage (SQLite storage helpers).
 from flask import request, jsonify, render_template
 from datetime import datetime
 
-from app.broken_clock import (
+from app.broken_clock.domain import (
     parse_hhmm,
     to_minutes,
     compute_offset,
@@ -18,7 +18,7 @@ from app.broken_clock import (
     format_explanation,
     format_compact_ref_point,
 )
-from app.broken_clock_storage import get_db_path, save_calculation, get_history
+from app.broken_clock.storage import get_db_path, save_calculation, get_history
 
 
 BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
