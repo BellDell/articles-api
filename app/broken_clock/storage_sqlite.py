@@ -83,3 +83,12 @@ def get_history(db_path):
                 "reference_points": json.loads(row["reference_points_json"]),
             })
     return rows
+
+
+def delete_history_record(record_id, db_path):
+    """Delete a history record by id. Returns True if deleted, False if not found."""
+    ensure_db_initialized(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        cursor = conn.execute("DELETE FROM broken_clock_history WHERE id = ?", (record_id,))
+        conn.commit()
+        return cursor.rowcount > 0

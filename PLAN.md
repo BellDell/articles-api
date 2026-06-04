@@ -1,53 +1,53 @@
-# Plan: Add home page at GET /
+# Plan: Replace DynamoDB ordinal history IDs with stable record IDs
 
-## 1. Goal
+## 1. Why
 
-Add a simple home page at `GET /` with links to the Broken Clock Calculator and its history, making the root URL useful instead of returning 404.
+`delete_history_record` on DynamoDB currently uses the ordinal index (1-based position in newest-first query) as the record id. If records are inserted between viewing the list and issuing a delete, the ordinal shifts and the wrong record could be deleted.
 
-## 2. In scope
+## 2. What changes
 
-- Add `GET /` route mapped to a new handler.
-- Create `app/templates/broken_clock/home.html` template.
-- Add a "Home" link to the existing navbar in `_layout.html`, active when on the home page.
-- Wire the new route via `register_routes` in `app/routes.py`.
+### `save_calculation` (DynamoDB)
 
-## 3. Out of scope
+- Generate a stable, unique id when saving.
+- Use `uuid.uuid4().hex[:12]` — a short, URL-safe random hex string.
+- Store it as an `id` attribute on the DynamoDB item.
+- No table key change — `app_id` + `created_at` remains the primary key.
 
-- No storage or database changes.
-- No DynamoDB changes.
-- No delete history or other new features.
-- No auth or user_id.
-- No changes to existing route URLs (`/broken-clock`, `/broken-clock/calculate`, `/broken-clock/history`).
-- No JSON API changes.
-- No Terraform, GitHub Actions, or Docker changes.
-- No changes to existing templates (`form.html`, `result.html`, `history.html`, `error.html`).
+### `get_history` (DynamoDB)
 
-## 4. Template and navigation changes
+- Return the stored `id` from the item instead of computing an ordinal.
 
-### New template: `app/templates/broken_clock/home.html`
+### `delete_history_record` (DynamoDB)
 
-- Extends `_layout.html`.
-- Title: "Home" or "Broken Clock App".
-- Content: a brief welcome heading and two buttons or cards linking to:
-  - `/broken-clock` — "Calculator"
-  - `/broken-clock/history` — "History"
-- Simple Bulma styling consistent with existing pages.
+- Query all items for the app_id.
+- Find the item whose stored `id` matches the given record_id.
+- Delete using `app_id` + `created_at` key.
+- Return `True` if found and deleted, `False` otherwise.
 
-### Navigation update: `app/templates/broken_clock/_layout.html`
+### SQLite
 
-- Add a "Home" navbar link pointing to `/`.
-- The link should accept the same `nav_active_home` pattern used by Calculator and History links (via a template variable or block).
+- No changes — SQLite already uses stable auto-increment integer ids.
 
-## 5. Test strategy
+### Routes
 
-- Existing tests continue to pass.
-- Add tests (in a new or existing test file):
-  - `test_home_page_returns_200` — `GET /` returns 200.
-  - `test_home_page_contains_calculator_link` — page contains a link or text pointing to `/broken-clock`.
-  - `test_home_page_contains_history_link` — page contains a link or text pointing to `/broken-clock/history`.
-- Keep HTML assertions simple — check for important text/links, not exact structure.
+- No changes needed — the `record_id` path parameter is already a string-compatible type.
 
-## 6. Follow-up steps
+### Other
 
-- None immediately; the home page is a small standalone addition.
-- If more pages are added later, the home page can be expanded with a dashboard or index of available tools.
+- The UUID hex id is random enough for single-user use. Auth/user scoping is a separate step.
+
+## 3. What stays the same
+
+- `app_id` + `created_at` as DynamoDB table key.
+- All route URLs and HTTP method contracts.
+- All JSON response shapes (the `id` field type becomes string instead of int for DynamoDB responses; already forward-compatible).
+- SQLite behavior unchanged.
+- All existing tests pass with minimal updates.
+
+## 4. Tests
+
+- `test_dynamodb_save_calculation_writes_item` — verify item has a non-empty `id` attribute.
+- `test_dynamodb_get_history_returns_stable_id` — create two records, verify each has a unique string id.
+- `test_dynamodb_delete_history_record_by_stable_id` — save a record, delete by its stored id, verify success.
+- `test_dynamodb_delete_history_record_not_found` — delete with a random unknown id returns False.
+- Existing SQLite and route tests unchanged.

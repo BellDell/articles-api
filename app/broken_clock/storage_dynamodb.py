@@ -6,6 +6,7 @@ in a DynamoDB table for use with AWS App Runner.
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 
 
@@ -29,6 +30,30 @@ def _get_table():
     return dynamodb.Table(table_name)
 
 
+def _query_all_items():
+    """Return all DynamoDB items for the current APP_ID, newest first."""
+    app_id = os.environ.get("APP_ID", APP_ID_DEFAULT)
+    table = _get_table()
+
+    response = table.query(
+        KeyConditionExpression="app_id = :aid",
+        ExpressionAttributeValues={":aid": app_id},
+        ScanIndexForward=False,
+    )
+    items = response.get("Items", [])
+
+    while "LastEvaluatedKey" in response:
+        response = table.query(
+            KeyConditionExpression="app_id = :aid",
+            ExpressionAttributeValues={":aid": app_id},
+            ScanIndexForward=False,
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
+
+    return items
+
+
 def get_db_path():
     """Return None — DynamoDB does not use a file path."""
     return None
@@ -47,6 +72,7 @@ def save_calculation(_db_path, real_observed_time, wrong_observed_time,
 
     table = _get_table()
     table.put_item(Item={
+        "id": uuid.uuid4().hex[:12],
         "app_id": app_id,
         "created_at": created_at,
         "real_observed_time": real_observed_time,
@@ -61,31 +87,12 @@ def save_calculation(_db_path, real_observed_time, wrong_observed_time,
 
 def get_history(_db_path):
     """Return all saved calculations, newest first, with JSON fields decoded."""
-    app_id = os.environ.get("APP_ID", APP_ID_DEFAULT)
-    table = _get_table()
-
-    response = table.query(
-        KeyConditionExpression="app_id = :aid",
-        ExpressionAttributeValues={":aid": app_id},
-        ScanIndexForward=False,  # newest first
-    )
-
-    items = response.get("Items", [])
-
-    # Handle pagination
-    while "LastEvaluatedKey" in response:
-        response = table.query(
-            KeyConditionExpression="app_id = :aid",
-            ExpressionAttributeValues={":aid": app_id},
-            ScanIndexForward=False,
-            ExclusiveStartKey=response["LastEvaluatedKey"],
-        )
-        items.extend(response.get("Items", []))
+    items = _query_all_items()
 
     rows = []
-    for idx, item in enumerate(items):
+    for item in items:
         rows.append({
-            "id": idx + 1,  # ordinal, not a DynamoDB attribute
+            "id": item["id"],
             "created_at": item["created_at"],
             "real_observed_time": item["real_observed_time"],
             "wrong_observed_time": item["wrong_observed_time"],
@@ -97,3 +104,24 @@ def get_history(_db_path):
         })
 
     return rows
+
+
+def delete_history_record(record_id, _db_path):
+    """Delete a history record by stable id. Returns True if deleted, False if not found."""
+    items = _query_all_items()
+    table = _get_table()
+
+    target = None
+    for item in items:
+        if str(item["id"]) == str(record_id):
+            target = item
+            break
+
+    if target is None:
+        return False
+
+    table.delete_item(Key={
+        "app_id": target["app_id"],
+        "created_at": target["created_at"],
+    })
+    return True

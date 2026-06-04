@@ -86,6 +86,7 @@ def test_dynamodb_save_calculation_writes_item(monkeypatch):
     table = fake_db.Table("test-table")
     assert len(table.items) == 1
     item = table.items[0]
+    assert len(item["id"]) == 12
     assert item["app_id"] == "test-app"
     assert item["real_observed_time"] == "10:00"
     assert item["offset_minutes"] == 60
@@ -104,6 +105,7 @@ def test_dynamodb_get_history_returns_correct_shape(monkeypatch):
 
     table = fake_db.Table("test-table")
     table.put_item(Item={
+        "id": "stable_id_001",
         "app_id": "test-app",
         "created_at": "2026-01-01T12:00:00Z",
         "real_observed_time": "10:00",
@@ -118,7 +120,8 @@ def test_dynamodb_get_history_returns_correct_shape(monkeypatch):
     history = mod.get_history(None)
     assert len(history) == 1
     record = history[0]
-    assert record["id"] == 1
+    assert isinstance(record["id"], str)
+    assert isinstance(record["id"], str)
     assert record["real_observed_time"] == "10:00"
     assert record["offset_minutes"] == 60
     assert isinstance(record["target_wrong_times"], list)
@@ -137,6 +140,7 @@ def test_dynamodb_get_history_newest_first(monkeypatch):
 
     table = fake_db.Table("test-table")
     table.put_item(Item={
+        "id": "first_item",
         "app_id": "test-app",
         "created_at": "2026-01-01T10:00:00Z",
         "real_observed_time": "09:00",
@@ -148,6 +152,7 @@ def test_dynamodb_get_history_newest_first(monkeypatch):
         "reference_points": json.dumps([]),
     })
     table.put_item(Item={
+        "id": "second_item",
         "app_id": "test-app",
         "created_at": "2026-01-02T10:00:00Z",
         "real_observed_time": "10:00",
