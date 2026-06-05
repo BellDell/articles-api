@@ -1,20 +1,47 @@
 {% extends "broken_clock/_layout.html" %}
 {% block title %}Water Meter History{% endblock %}
-{% block content %}
-<section class="section">
-  <div class="container" style="max-width:780px">
-    <div class="bc-card-dark">
-      <h1 class="title is-4 mb-4" style="color:#a78bfa">Water Meter History</h1>
 
-      {% if not readings %}
-      <div style="color:#4b5563;text-align:center;padding:2rem 0">
-        <p>No readings yet.</p>
-        <a href="/water-meter" style="color:#818cf8">Add your first reading &#8594;</a>
+{% block extra_style %}
+  .wm-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .wm-table th {
+    color: var(--bc-text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 4px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--bc-border);
+  }
+  .wm-table td {
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--bc-border);
+    vertical-align: middle;
+  }
+  .wm-table tr:nth-child(even) td { background: #f8f6f2; }
+  .wm-table .col-val { color: var(--bc-accent); font-weight: 600; }
+  .wm-table .col-note { color: var(--bc-text-muted); }
+
+  .empty-state { text-align:center; padding:2.5rem 0; color: var(--bc-text-muted); }
+  .empty-state a { color: var(--bc-accent); }
+{% endblock %}
+
+{% block content %}
+<div style="max-width:760px;margin:0 auto">
+  <div class="bc-card">
+    <div class="accent-rule"></div>
+    <h1 class="card-title">Water Meter History</h1>
+
+    {% if not readings %}
+      <div class="empty-state">
+        <p>No readings yet.<br>
+           <a href="/water-meter">Add your first reading →</a>
+        </p>
       </div>
-      {% else %}
-      <table class="table is-striped is-fullwidth is-narrow" style="background:transparent;color:#f3f4f6">
+    {% else %}
+      <table class="wm-table">
         <thead>
-          <tr style="color:#6b7280;text-transform:uppercase;font-size:0.75rem">
+          <tr>
             <th>Date</th>
             <th>Meter</th>
             <th>Value</th>
@@ -26,32 +53,27 @@
         <tbody>
           {% for r in readings %}
           <tr>
-            <td style="color:#f3f4f6">{{ r.reading_date }}</td>
+            <td>{{ r.reading_date }}</td>
             <td>{{ r.meter_name }}</td>
-            <td style="color:#a78bfa;font-weight:600">{{ r.reading_value }}</td>
+            <td class="col-val">{{ r.reading_value }}</td>
             <td>{{ r.unit }}</td>
-            <td style="color:#6b7280">{{ r.notes }}</td>
+            <td class="col-note">{{ r.notes }}</td>
             <td>
               <form action="/water-meter/readings/{{ r.id }}/delete" method="post"
                     onsubmit="return confirm('Delete this reading?')" style="margin:0">
-                <button type="submit" class="button is-small is-danger is-light"
-                        style="border-radius:6px;font-size:0.72rem">Delete</button>
+                <button type="submit" class="bc-btn-ghost" style="padding:4px 10px;font-size:11px;color:#b91c1c!important">Delete</button>
               </form>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-      <p style="color:#4b5563;font-size:0.78rem;margin-top:0.75rem">
+      <p style="color:var(--bc-text-muted);font-size:12px;margin-top:12px">
         Showing latest {{ readings|length }} readings, newest first.
       </p>
-      {% endif %}
+    {% endif %}
 
-      <div class="buttons mt-4" style="gap:0.5rem">
-        <a class="button bc-btn" href="/water-meter"
-           style="padding:0.7rem 1.6rem;font-size:0.9rem">&#8592; Add another reading</a>
-      </div>
-    </div>
+    <a class="bc-btn-ghost" href="/water-meter" style="margin-top:16px">← Add another reading</a>
   </div>
-</section>
+</div>
 {% endblock %}

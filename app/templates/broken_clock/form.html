@@ -1,159 +1,101 @@
 {% extends "broken_clock/_layout.html" %}
-
 {% block title %}Broken Clock Calculator{% endblock %}
 
 {% block extra_style %}
   .result-panel { display: none; margin-top: 1.5rem; }
   .result-panel.is-visible { display: block; animation: fadeIn 0.25s ease; }
   @keyframes fadeIn { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
-
-  .ref-table th { background: rgba(102,126,234,0.08); }
-  .day-badge {
-    font-size: 0.7rem;
-    padding: 2px 7px;
-    border-radius: 20px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .day-badge.same    { background:#e8f5e9; color:#2e7d32; }
-  .day-badge.prev    { background:#fff3e0; color:#e65100; }
-  .day-badge.next    { background:#e3f2fd; color:#1565c0; }
   .spinner { display:inline-block; width:18px; height:18px; border:3px solid rgba(255,255,255,.5);
     border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:6px; }
   @keyframes spin { to { transform:rotate(360deg) } }
 
-  /* Dark card aesthetic matching screenshots */
-  .bc-card {
-    background: #1e1e2e;
-    border-radius: 16px;
-    padding: 2rem;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
-  }
-  .bc-card .title   { color: #a78bfa; }
-  .bc-card .subtitle { color: #9ca3af; font-size: 0.92rem; }
-  .bc-card .label   { color: #e5e7eb; font-weight: 600; }
-  .bc-card .help    { color: #6b7280; }
-  .bc-card .bc-input {
-    background: #2a2a3e !important;
-    border-color: #3f3f5a !important;
-    color: #f3f4f6 !important;
-  }
-  .bc-card .bc-input:focus {
-    border-color: #667eea !important;
-    box-shadow: 0 0 0 3px rgba(102,126,234,0.25) !important;
-  }
-  .bc-card .bc-input::placeholder { color: #4b5563; }
-  .bc-card a { color: #818cf8; }
-  .bc-card a:hover { color: #a5b4fc; }
-
-  /* result card inside dark card */
+  /* Warm Sand result panel */
   .result-inner {
-    background: #16162a;
-    border-radius: 12px;
-    padding: 1.25rem 1.5rem;
-    border: 1px solid #2d2d4a;
+    background: var(--bc-accent-subtle);
+    border: 1px solid var(--bc-accent-border);
+    border-radius: 10px;
+    padding: 16px 20px;
   }
-  .result-inner .label-cell { color: #9ca3af; font-size: 0.85rem; font-weight: 500; }
-  .result-inner .value-cell { color: #f3f4f6; font-weight: 600; }
+  .result-inner .label-cell { color: var(--bc-text-secondary); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  .result-inner .value-cell { color: var(--bc-text-primary); font-weight: 600; font-size: 14px; }
   .offset-badge {
     display: inline-block;
     padding: 4px 14px;
     border-radius: 20px;
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 14px;
   }
-  .offset-badge.fast     { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
-  .offset-badge.slow     { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
-  .offset-badge.accurate { background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.25); }
+  .offset-badge.fast     { background: var(--bc-fast-bg); color: var(--bc-fast); border: 1px solid #fed7aa; }
+  .offset-badge.slow     { background: var(--bc-slow-bg); color: var(--bc-slow); border: 1px solid #fecaca; }
+  .offset-badge.accurate { background: var(--bc-ok-bg);   color: var(--bc-ok);   border: 1px solid #bbf7d0; }
 
   .ref-row { display:flex; justify-content:space-between; align-items:center;
-    padding: 8px 0; border-bottom: 1px solid #2d2d4a; gap: 1rem; }
+    padding: 8px 0; border-bottom: 1px solid var(--bc-border); gap: 1rem; }
   .ref-row:last-child { border-bottom: none; }
-  .ref-wrong { color: #9ca3af; font-size:0.85rem; }
-  .ref-real  { color: #a78bfa; font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; }
-
-  body { background: #12121f; }
+  .ref-wrong { color: var(--bc-text-secondary); font-size:13px; }
+  .ref-real  { color: var(--bc-accent); font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
 {% endblock %}
 
 {% block content %}
-<section class="section" style="padding-top:1.5rem">
-  <div class="container" style="max-width:520px">
-    <div class="bc-card">
-      <h1 class="title is-4 mb-1">Broken Clock Calculator</h1>
-      <p class="subtitle mb-4">
-        Find out what time it really is when a clock is running fast or slow.
-        Enter both times right now, then list the broken-clock readings you want to look up.
+<div style="max-width:480px;margin:0 auto">
+  <div class="bc-card">
+    <div class="accent-rule"></div>
+    <h1 class="card-title">Broken Clock Calculator</h1>
+    <p style="color:var(--bc-text-secondary);font-size:13px;margin:0 0 20px;line-height:1.5">
+      Find out what time it really is when a clock is running fast or slow.
+      Enter both times now, then list the broken-clock readings you want to look up.
+    </p>
+
+    <div id="bc-error" style="display:none;background:var(--bc-slow-bg);color:var(--bc-slow);border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px"></div>
+
+    <form id="bc-form" action="/broken-clock/calculate" method="post">
+
+      <div style="margin-bottom:16px">
+        <label class="bc-label" for="real_observed_time">Actual time right now (HH:MM)</label>
+        <input id="real_observed_time" name="real_observed_time" class="bc-input" type="text"
+               value="{{ default_real }}" placeholder="HH:MM" autocomplete="off">
+        <div class="bc-help">What the real clock, phone, or computer shows right now.</div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label class="bc-label" for="wrong_observed_time">What the broken clock shows (HH:MM)</label>
+        <input id="wrong_observed_time" name="wrong_observed_time" class="bc-input" type="text"
+               value="10:00" placeholder="HH:MM" autocomplete="off">
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label class="bc-label" for="target_wrong_times">Broken-clock times to look up (comma-separated)</label>
+        <input id="target_wrong_times" name="target_wrong_times" class="bc-input" type="text"
+               value="00:00,07:00,09:00" placeholder="00:00,07:00,09:00" autocomplete="off">
+        <div class="bc-help">When the broken clock shows these times, what is the real time?</div>
+      </div>
+
+      <button id="bc-submit" type="submit" class="bc-btn" style="width:100%;height:2.8rem;font-size:15px">
+        Calculate real times
+      </button>
+
+      <p style="text-align:center;margin-top:12px;font-size:12px">
+        <a href="/broken-clock/history" style="color:var(--bc-accent);text-decoration:none">View calculation history</a>
       </p>
+    </form>
 
-      <div id="bc-error" class="notification is-danger is-light" style="display:none;border-radius:10px"></div>
-
-      <form id="bc-form" action="/broken-clock/calculate" method="post">
-
-      <div class="field">
-        <label class="label" for="real_observed_time">Actual time right now (HH:MM)</label>
-        <div class="control">
-          <input id="real_observed_time" name="real_observed_time" class="input bc-input" type="text"
-                 value="{{ default_real }}" placeholder="HH:MM" autocomplete="off">
+    <div id="result-panel" class="result-panel">
+      <div class="result-inner">
+        <div style="margin-bottom:14px">
+          <div class="label-cell" style="margin-bottom:4px">Clock offset</div>
+          <span id="res-badge" class="offset-badge">—</span>
         </div>
-        <p class="help">What the real clock, phone, or computer shows right now.</p>
-      </div>
-
-      <div class="field">
-        <label class="label" for="wrong_observed_time">What the broken clock shows right now (HH:MM)</label>
-        <div class="control">
-          <input id="wrong_observed_time" name="wrong_observed_time" class="input bc-input" type="text"
-                 value="10:00" placeholder="HH:MM" autocomplete="off">
+        <div style="display:flex;gap:1.5rem;margin-bottom:16px;flex-wrap:wrap">
+          <div><div class="label-cell">You observed</div><div class="value-cell" id="res-real">—</div></div>
+          <div><div class="label-cell">Broken clock</div><div class="value-cell" id="res-wrong">—</div></div>
+          <div><div class="label-cell">Status</div><div class="value-cell" id="res-status">—</div></div>
         </div>
-      </div>
-
-      <div class="field">
-        <label class="label" for="target_wrong_times">Broken-clock times to look up (comma-separated)</label>
-        <div class="control">
-          <input id="target_wrong_times" name="target_wrong_times" class="input bc-input" type="text"
-                 value="00:00,07:00,09:00" placeholder="00:00,07:00,09:00" autocomplete="off">
-        </div>
-        <p class="help">When the broken clock shows these times, what is the real time?
-          For example: alarms or schedules.</p>
-      </div>
-
-      <div class="field mt-5">
-        <button id="bc-submit" type="submit" class="button is-primary bc-btn is-fullwidth" style="height:2.8rem;font-size:1rem">
-          Calculate real times
-        </button>
-      </div>
-
-      <p class="is-size-7 mt-2 has-text-centered">
-        <a href="/broken-clock/history">View calculation history</a>
-      </p>
-      </form>
-      <div id="result-panel" class="result-panel">
-        <div class="result-inner">
-          <div style="margin-bottom:1rem">
-            <div class="label-cell mb-1">Clock offset</div>
-            <span id="res-badge" class="offset-badge">—</span>
-          </div>
-          <div style="display:flex;gap:1.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
-            <div>
-              <div class="label-cell">You observed</div>
-              <div class="value-cell" id="res-real">—</div>
-            </div>
-            <div>
-              <div class="label-cell">Broken clock showed</div>
-              <div class="value-cell" id="res-wrong">—</div>
-            </div>
-            <div>
-              <div class="label-cell">Status</div>
-              <div class="value-cell" id="res-status">—</div>
-            </div>
-          </div>
-
-          <div class="label-cell mb-2">Reference points</div>
-          <div id="res-refs"></div>
-        </div>
+        <div class="label-cell" style="margin-bottom:8px">Reference points</div>
+        <div id="res-refs"></div>
       </div>
     </div>
   </div>
-</section>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -194,7 +136,7 @@
     refsEl.innerHTML = data.reference_points.map(r => {
       const shift = String(r.day_shift);
       return `<div class="ref-row">
-        <span class="ref-wrong">Broken shows <strong style="color:#c4b5fd">${r.wrong_time}</strong></span>
+        <span class="ref-wrong">Broken shows <strong style="color:var(--bc-accent)">${r.wrong_time}</strong></span>
         <span class="ref-real">${r.real_time}</span>
         <span class="day-badge ${DAY_CLASS[shift]}">${DAY_LABELS[shift]}</span>
       </div>`;
@@ -222,7 +164,6 @@
 
     setLoading(true);
     try {
-      // RESTful JSON call — no page reload
       const resp = await fetch('/broken-clock/calculate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

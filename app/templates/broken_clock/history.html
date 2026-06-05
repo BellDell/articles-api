@@ -1,111 +1,85 @@
 {% extends "broken_clock/_layout.html" %}
-
 {% block title %}Calculation History{% endblock %}
 
 {% block extra_style %}
-  body { background: #12121f; }
-  .bc-card {
-    background: #1e1e2e;
-    border-radius: 16px;
-    padding: 2rem;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
-  }
-  .bc-card .title { color: #a78bfa; }
-
-  .hist-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr 120px 80px;
-    gap: 0.5rem 1rem;
-    align-items: center;
-    padding: 0.75rem 0;
-    border-bottom: 1px solid #2d2d4a;
-    font-size: 0.88rem;
-  }
-  .hist-header {
-    color: #6b7280;
-    font-weight: 600;
-    font-size: 0.75rem;
+  .hist-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .hist-table th {
+    color: var(--bc-text-muted);
+    font-size: 11px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    padding: 8px 4px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--bc-border);
   }
-  .hist-row:last-child { border-bottom: none; }
-  .hist-row .col-time  { color: #f3f4f6; font-variant-numeric: tabular-nums; }
-  .hist-row .col-ts    { color: #6b7280; font-size: 0.78rem; }
-  .hist-row .col-off   { color: #a78bfa; font-weight: 600; }
-  .status-badge {
-    display: inline-block; padding: 2px 10px; border-radius: 20px;
-    font-size: 0.75rem; font-weight: 700;
+  .hist-table td {
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--bc-border);
+    vertical-align: middle;
   }
-  .status-badge.fast     { background:rgba(251,191,36,0.15);  color:#fbbf24; }
-  .status-badge.slow     { background:rgba(239,68,68,0.12);   color:#f87171; }
-  .status-badge.accurate { background:rgba(52,211,153,0.12);  color:#34d399; }
+  .hist-table tr:nth-child(even) td { background: #f8f6f2; }
+  .hist-table .col-ts   { color: var(--bc-text-muted); font-size:12px; }
+  .hist-table .col-time { color: var(--bc-text-primary); font-variant-numeric: tabular-nums; }
+  .hist-table .col-off  { color: var(--bc-accent); font-weight: 600; }
 
-  .empty-state { color:#4b5563; text-align:center; padding:2rem 0; }
-  .empty-state .icon { font-size:2.5rem; margin-bottom:0.5rem; }
+  .empty-state { text-align:center; padding:2.5rem 0; color: var(--bc-text-muted); }
+  .empty-state a { color: var(--bc-accent); }
 
   @media (max-width: 600px) {
-    .hist-row {
-      grid-template-columns: 1fr 1fr;
-      gap: 0.25rem 0.75rem;
-    }
-    .col-ts, .col-refs { display: none; }
+    .hist-table .col-ts,
+    .hist-table .col-refs { display: none; }
   }
 {% endblock %}
 
 {% block content %}
-<section class="section" style="padding-top:1.5rem">
-  <div class="container" style="max-width:780px">
-    <div class="bc-card">
-      <h1 class="title is-4 mb-4">Calculation History</h1>
+<div style="max-width:760px;margin:0 auto">
+  <div class="bc-card">
+    <div class="accent-rule"></div>
+    <h1 class="card-title">Calculation History</h1>
 
-      {% if not records %}
-        <div class="empty-state">
-          <div class="icon">🕰️</div>
-          <p>No calculations yet.<br>
-             <a href="/broken-clock" style="color:#818cf8">Run your first calculation →</a>
-          </p>
-        </div>
-      {% else %}
-        <div class="hist-row hist-header" style="grid-template-columns:1fr 1fr 1fr 120px 80px 60px">
-          <span>When</span>
-          <span>Actual → Broken</span>
-          <span>Offset</span>
-          <span>Status</span>
-          <span class="col-refs">Refs</span>
-          <span></span>
-        </div>
-        {% for r in records %}
-        <div class="hist-row" style="grid-template-columns:1fr 1fr 1fr 120px 80px 60px">
-          <span class="col-ts">{{ r.created_at[:16].replace('T',' ') }}</span>
-          <span class="col-time">{{ r.real_observed_time }} → {{ r.wrong_observed_time }}</span>
-          <span class="col-off">{{ r.offset_human }}</span>
-          <span>
-            <span class="status-badge {{ r.clock_status }}">{{ r.clock_status }}</span>
-          </span>
-          <span class="col-refs" style="color:#6b7280;font-size:0.78rem">
-            {{ r.ref_points_display }}
-          </span>
-          <span>
-            <form action="/broken-clock/history/{{ r.id }}/delete" method="post">
-              <button type="submit" class="button is-small is-danger is-light"
-                      style="border-radius:6px;font-size:0.72rem"
-                      onclick="return confirm('Delete this record?')">
-                Delete
-              </button>
-            </form>
-          </span>
-        </div>
-        {% endfor %}
-        <p style="color:#4b5563;font-size:0.78rem;margin-top:0.75rem">
-          Showing latest {{ records | length }} calculations, newest first.
+    {% if not records %}
+      <div class="empty-state">
+        <p>No calculations yet.<br>
+           <a href="/broken-clock">Run your first calculation →</a>
         </p>
-      {% endif %}
+      </div>
+    {% else %}
+      <table class="hist-table">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Actual → Broken</th>
+            <th>Offset</th>
+            <th>Status</th>
+            <th class="col-refs">Refs</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in records %}
+          <tr>
+            <td class="col-ts">{{ r.created_at[:16].replace('T',' ') }}</td>
+            <td class="col-time">{{ r.real_observed_time }} → {{ r.wrong_observed_time }}</td>
+            <td class="col-off">{{ r.offset_human }}</td>
+            <td><span class="status-badge {{ r.clock_status }}">{{ r.clock_status }}</span></td>
+            <td class="col-refs" style="color:var(--bc-text-muted);font-size:12px">{{ r.ref_points_display }}</td>
+            <td>
+              <form action="/broken-clock/history/{{ r.id }}/delete" method="post"
+                    onsubmit="return confirm('Delete this record?')" style="margin:0">
+                <button type="submit" class="bc-btn-ghost" style="padding:4px 10px;font-size:11px;color:#b91c1c!important">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p style="color:var(--bc-text-muted);font-size:12px;margin-top:12px">
+        Showing latest {{ records | length }} calculations, newest first.
+      </p>
+    {% endif %}
 
-      <a class="button bc-btn mt-4" href="/broken-clock"
-         style="background:linear-gradient(135deg,#667eea,#764ba2)!important">
-        ← Calculate again
-      </a>
-    </div>
+    <a class="bc-btn-ghost" href="/broken-clock" style="margin-top:16px">← Calculate again</a>
   </div>
-</section>
+</div>
 {% endblock %}
