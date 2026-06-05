@@ -7,48 +7,93 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
   <style>
     :root {
-      --grad: linear-gradient(135deg, #667eea, #764ba2);
-      --nav-h: 56px;
+      /* Warm Sand design tokens */
+      --bc-bg-page:    #faf7f2;
+      --bc-bg-surface: #ffffff;
+      --bc-bg-subtle:  #f5f0e8;
+
+      --bc-border:     #e8e0d5;
+      --bc-border-mid: #d4c9b8;
+
+      --bc-text-primary:   #1c1917;
+      --bc-text-secondary: #78716c;
+      --bc-text-muted:     #a8a29e;
+
+      --bc-accent:         #c2410c;
+      --bc-accent-hover:   #9a3412;
+      --bc-accent-subtle:  #fff7ed;
+      --bc-accent-border:  #fed7aa;
+
+      --bc-fast:    #b45309;
+      --bc-slow:    #b91c1c;
+      --bc-ok:      #15803d;
+      --bc-fast-bg: #fffbeb;
+      --bc-slow-bg: #fef2f2;
+      --bc-ok-bg:   #f0fdf4;
+
+      --nav-h: 52px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bc-bg-page);
+      color: var(--bc-text-primary);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    h1, h2, h3, .brand {
+      font-family: Georgia, "Times New Roman", serif;
     }
 
     /* ── Navbar ── */
     .bc-nav {
-      background: var(--grad);
-      box-shadow: 0 2px 16px rgba(0,0,0,0.22);
+      background: var(--bc-bg-page);
+      border-bottom: 1px solid var(--bc-border);
       position: sticky;
       top: 0;
       z-index: 100;
+      min-height: var(--nav-h);
     }
     .bc-nav .navbar-brand .navbar-item {
-      color: #fff !important;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 16px;
       font-weight: 700;
-      font-size: 1.1rem;
+      color: var(--bc-text-primary) !important;
       gap: 6px;
     }
     .bc-nav .navbar-item {
-      color: rgba(255,255,255,0.88) !important;
+      font-size: 13px;
       font-weight: 500;
-      border-radius: 8px;
-      transition: background 0.15s;
+      color: var(--bc-text-secondary) !important;
+      border-radius: 7px;
+      padding: 6px 12px;
+      margin: 4px 2px;
+      transition: background 0.15s, color 0.15s;
     }
     .bc-nav .navbar-item:hover {
-      background: rgba(255,255,255,0.18) !important;
-      color: #fff !important;
+      background: var(--bc-bg-subtle) !important;
+      color: var(--bc-text-primary) !important;
     }
     .bc-nav .navbar-item.is-active {
-      background: rgba(255,255,255,0.24) !important;
-      color: #fff !important;
-      font-weight: 700;
+      background: var(--bc-accent-subtle) !important;
+      color: var(--bc-accent) !important;
+      font-weight: 600;
     }
+    .bc-nav .navbar-brand { min-height: var(--nav-h); }
 
-    /* Hamburger icon lines — white on purple bg */
+    /* Hamburger icon lines */
     .bc-nav .navbar-burger {
-      color: #fff;
+      color: var(--bc-text-secondary);
       height: var(--nav-h);
       width: var(--nav-h);
     }
     .bc-nav .navbar-burger span {
-      background-color: #fff;
+      background-color: var(--bc-text-secondary);
       height: 2px;
       left: calc(50% - 10px);
       width: 20px;
@@ -57,64 +102,147 @@
     .bc-nav .navbar-burger span:nth-child(2) { top: calc(50% - 1px); }
     .bc-nav .navbar-burger span:nth-child(3) { top: calc(50% + 5px); }
 
-    /* Mobile dropdown panel */
     @media (max-width: 1023px) {
       .bc-nav .navbar-menu.is-active {
-        background: linear-gradient(160deg, #5a6fd6, #6a3fa0);
+        background: var(--bc-bg-surface);
+        border: 1px solid var(--bc-border);
+        border-radius: 0 0 12px 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
         padding: 0.5rem 1rem 1rem;
-        border-radius: 0 0 14px 14px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-      }
-      .bc-nav .navbar-menu.is-active .navbar-item {
-        border-radius: 8px;
-        padding: 0.6rem 1rem;
       }
     }
 
-    /* ── Page ── */
-    body { background: #f0f2f8; min-height: 100vh; }
-
-    .bc-box {
-      border-radius: 16px;
-      box-shadow: 0 4px 32px rgba(0,0,0,0.09);
-      background: #fff;
+    /* ── Page wrapper ── */
+    .bc-page {
+      padding: 28px 20px;
+      max-width: 100%;
     }
-    .bc-btn {
-      border-radius: 10px;
-      font-weight: 600;
-      background: var(--grad) !important;
-      border: none !important;
-      color: #fff !important;
-      transition: opacity 0.15s, transform 0.1s;
-    }
-    .bc-btn:hover  { opacity: 0.88; transform: translateY(-1px); }
-    .bc-btn:active { transform: translateY(0); }
-    .bc-btn:disabled { opacity: 0.55; transform: none; cursor: not-allowed; }
 
+    /* ── Card ── */
+    .bc-card {
+      background: var(--bc-bg-surface);
+      border: 1px solid var(--bc-border);
+      border-radius: 12px;
+      padding: 22px 24px;
+      margin: 0 auto;
+    }
+    .bc-card h1,
+    .bc-card .card-title {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 22px;
+      color: var(--bc-text-primary);
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+    }
+    .bc-card .accent-rule {
+      width: 40px;
+      height: 3px;
+      background: var(--bc-accent);
+      border-radius: 2px;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Labels ── */
+    .bc-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--bc-text-secondary);
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    /* ── Inputs ── */
     .bc-input {
-      border-radius: 8px !important;
-      border-color: #d0d3e0 !important;
+      background: var(--bc-bg-subtle);
+      border: 1px solid var(--bc-border);
+      border-radius: 8px;
+      padding: 10px 13px;
+      font-size: 14px;
+      color: var(--bc-text-primary);
+      width: 100%;
+      box-sizing: border-box;
       transition: border-color 0.15s, box-shadow 0.15s;
+      outline: none;
     }
     .bc-input:focus {
-      border-color: #667eea !important;
-      box-shadow: 0 0 0 3px rgba(102,126,234,0.18) !important;
+      border-color: var(--bc-accent);
+      box-shadow: 0 0 0 3px rgba(194,65,12,0.12);
+    }
+    .bc-input::placeholder { color: var(--bc-text-muted); }
+
+    /* ── Buttons ── */
+    .bc-btn {
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 10px 20px;
+      background: var(--bc-accent) !important;
+      border: none !important;
+      color: #fff !important;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      text-decoration: none;
+    }
+    .bc-btn:hover  { background: var(--bc-accent-hover) !important; transform: translateY(-1px); }
+    .bc-btn:active { transform: translateY(0); }
+    .bc-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    .bc-btn-ghost {
+      background: transparent !important;
+      color: var(--bc-text-secondary) !important;
+      border: none;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 7px;
+      transition: background 0.15s, color 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      text-decoration: none;
+    }
+    .bc-btn-ghost:hover {
+      background: var(--bc-bg-subtle);
+      color: var(--bc-text-primary) !important;
     }
 
-    .bc-card-dark {
-      background: #1e1e2e;
-      border-radius: 16px;
-      padding: 2rem;
-      box-shadow: 0 8px 40px rgba(0,0,0,0.18);
-    }
-
-    .bc-label-light {
-      color: #d1d5db !important;
-    }
-
+    /* ── Help text ── */
     .bc-help {
-      color: #6b7280 !important;
+      font-size: 12px;
+      color: var(--bc-text-muted);
+      margin-top: 4px;
     }
+
+    /* ── Status badges ── */
+    .status-badge {
+      display: inline-block;
+      padding: 3px 11px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .status-badge.fast     { background: var(--bc-fast-bg); color: var(--bc-fast); }
+    .status-badge.slow     { background: var(--bc-slow-bg); color: var(--bc-slow); }
+    .status-badge.accurate { background: var(--bc-ok-bg);   color: var(--bc-ok); }
+
+    /* ── Day badges ── */
+    .day-badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 20px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .day-badge.same { background: var(--bc-ok-bg);   color: var(--bc-ok); }
+    .day-badge.prev { background: var(--bc-fast-bg); color: var(--bc-fast); }
+    .day-badge.next { background: #eff6ff;           color: #1d4ed8; }
 
     {% block extra_style %}{% endblock %}
   </style>
@@ -123,10 +251,7 @@
 
 <nav class="navbar bc-nav" role="navigation" aria-label="main navigation">
   <div class="navbar-brand">
-    <a class="navbar-item" href="/broken-clock">
-      ⏰ Broken Clock
-    </a>
-    <!-- Hamburger button — toggled by JS below -->
+    <a class="navbar-item" href="/">⏰ Broken Clock</a>
     <button type="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
        data-target="bc-navbar-menu">
       <span aria-hidden="true"></span>
@@ -141,18 +266,17 @@
          href="/">Home</a>
       <a class="navbar-item {% if active_page == 'calculator' %}is-active{% endif %}"
          href="/broken-clock">Calculator</a>
-      <a class="navbar-item {% if active_page == 'history' %}is-active{% endif %}"
-         href="/broken-clock/history">History</a>
       <a class="navbar-item {% if active_page == 'water_meter' %}is-active{% endif %}"
          href="/water-meter">Water Meter</a>
     </div>
   </div>
 </nav>
 
+<div class="bc-page">
 {% block content %}{% endblock %}
+</div>
 
 <script>
-  // Hamburger toggle (Bulma doesn't ship JS)
   document.addEventListener('DOMContentLoaded', () => {
     const burgers = document.querySelectorAll('.navbar-burger');
     burgers.forEach(burger => {

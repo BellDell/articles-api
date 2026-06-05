@@ -1,31 +1,17 @@
 {% extends "broken_clock/_layout.html" %}
-
-{% block title %}Error — Broken Clock{% endblock %}
-
-{% block extra_style %}
-  body { background: #12121f; }
-  .bc-card {
-    background: #1e1e2e; border-radius: 16px; padding: 2rem;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
-  }
-  .bc-card .title { color: #f87171; }
-  .err-msg {
-    background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
-    border-radius: 10px; padding: 1rem 1.25rem; color: #fca5a5; margin-bottom: 1.5rem;
-  }
-{% endblock %}
+{% block title %}Error{% endblock %}
 
 {% block content %}
-<section class="section" style="padding-top:1.5rem">
-  <div class="container" style="max-width:520px">
-    <div class="bc-card">
-      <h1 class="title is-4">Error</h1>
-      <div class="err-msg">{{ message }}</div>
-      <a class="button bc-btn" href="{{ back_url|default('/broken-clock') }}"
-         style="background:linear-gradient(135deg,#667eea,#764ba2)!important">
-        ← {{ back_label|default('Calculate again') }}
-      </a>
+<div style="max-width:480px;margin:0 auto">
+  <div class="bc-card">
+    <div style="width:40px;height:3px;background:#dc2626;border-radius:2px;margin-bottom:12px"></div>
+    <h1 class="card-title" style="color:#dc2626">Something went wrong</h1>
+    <div style="background:var(--bc-slow-bg);border:1px solid #fecaca;border-radius:8px;padding:12px 16px;color:#7f1d1d;font-size:13px;margin-bottom:20px">
+      {{ message }}
     </div>
+    <a class="bc-btn" href="{{ back_url|default('/broken-clock') }}">
+      ← {{ back_label|default('Calculate again') }}
+    </a>
   </div>
-</section>
+</div>
 {% endblock %}

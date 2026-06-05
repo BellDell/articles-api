@@ -1,48 +1,30 @@
 {% extends "broken_clock/_layout.html" %}
-{% block title %}Broken Clock Calculator{% endblock %}
+{% block title %}Broken Clock App{% endblock %}
 {% block content %}
-<section class="section">
-  <div class="container" style="max-width:720px">
-    <h1 class="title has-text-centered" style="color:#4a4a8a;font-size:2rem;margin-bottom:0.5rem">&#9200; Welcome</h1>
-    <p class="subtitle has-text-centered is-6" style="color:#6a6a8a;margin-bottom:2rem">
-      Choose a tool to get started.
-    </p>
 
-    <div class="columns is-centered is-variable is-6">
+<div style="max-width:640px;margin:0 auto">
+  <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:24px;text-align:center;margin:0 0 4px;color:var(--bc-text-primary)">Welcome</h1>
+  <p style="text-align:center;color:var(--bc-text-secondary);font-size:14px;margin:0 0 24px">Choose a tool to get started.</p>
 
-      <!-- Broken Clock card -->
-      <div class="column is-half">
-        <div class="box bc-box" style="text-align:center;padding:2rem;height:100%">
-          <h2 class="title is-4" style="color:#4a4a8a">&#128200; Broken Clock</h2>
-          <p class="is-size-6" style="color:#6a6a8a;margin-bottom:1.5rem;line-height:1.6">
-            Convert a wrong clock&#8217;s reading to the real time.
-          </p>
-          <div class="buttons is-centered">
-            <a class="button bc-btn" href="/broken-clock"
-               style="padding:0.8rem 1.6rem;font-size:0.95rem">Open Calculator</a>
-            <a class="button bc-btn" href="/broken-clock/history"
-               style="padding:0.8rem 1.6rem;font-size:0.95rem">History</a>
-          </div>
-        </div>
-      </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <!-- Broken Clock card -->
+    <div class="bc-card" style="padding:24px;text-align:center;width:100%;margin:0">
+      <div class="accent-rule" style="margin:0 auto 12px"></div>
+      <h2 style="font-family:Georgia,'Times New Roman',serif;font-size:17px;margin:0 0 8px;color:var(--bc-text-primary)">Broken Clock</h2>
+      <p style="color:var(--bc-text-secondary);font-size:13px;margin:0 0 16px;line-height:1.5">Convert a wrong clock's reading to the real time.</p>
+      <a class="bc-btn" href="/broken-clock" style="width:100%;margin-bottom:8px">Calculator</a>
+      <a class="bc-btn-ghost" href="/broken-clock/history" style="width:100%">History</a>
+    </div>
 
-      <!-- Water Meter card -->
-      <div class="column is-half">
-        <div class="box bc-box" style="text-align:center;padding:2rem;height:100%">
-          <h2 class="title is-4" style="color:#4a4a8a">&#128207; Water Meter</h2>
-          <p class="is-size-6" style="color:#6a6a8a;margin-bottom:1.5rem;line-height:1.6">
-            Track your water usage by recording meter readings.
-          </p>
-          <div class="buttons is-centered">
-            <a class="button bc-btn" href="/water-meter"
-               style="padding:0.8rem 1.6rem;font-size:0.95rem">Add Reading</a>
-            <a class="button bc-btn" href="/water-meter/history"
-               style="padding:0.8rem 1.6rem;font-size:0.95rem">History</a>
-          </div>
-        </div>
-      </div>
-
+    <!-- Water Meter card -->
+    <div class="bc-card" style="padding:24px;text-align:center;width:100%;margin:0">
+      <div class="accent-rule" style="margin:0 auto 12px"></div>
+      <h2 style="font-family:Georgia,'Times New Roman',serif;font-size:17px;margin:0 0 8px;color:var(--bc-text-primary)">Water Meter</h2>
+      <p style="color:var(--bc-text-secondary);font-size:13px;margin:0 0 16px;line-height:1.5">Track your water usage by recording meter readings.</p>
+      <a class="bc-btn" href="/water-meter" style="width:100%;margin-bottom:8px">Add Reading</a>
+      <a class="bc-btn-ghost" href="/water-meter/history" style="width:100%">History</a>
     </div>
   </div>
-</section>
+</div>
+
 {% endblock %}
