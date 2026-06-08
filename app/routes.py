@@ -5,8 +5,12 @@ It only depends on app.broken_clock (pure calculation helpers)
 and app.broken_clock_storage (SQLite storage helpers).
 """
 
-from flask import request, jsonify, render_template, redirect
+from flask import request, jsonify, render_template, redirect, make_response
 from datetime import datetime
+import os
+from werkzeug.security import check_password_hash
+
+from app.auth.jwt import issue_token, verify_token
 
 from app.broken_clock.domain import (
     parse_hhmm,
@@ -467,6 +471,67 @@ def delete_water_meter_reading_html(record_id):
     return redirect("/water-meter/history")
 
 
+def _parse_cookie_secure():
+    """Return True if the auth cookie should have the Secure flag."""
+    val = os.environ.get("AUTH_COOKIE_SECURE", "").strip().lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    return False
+
+
+def auth_login_get():
+    """GET /auth/login — render the login page."""
+    return render_template("auth/login.html"), 200
+
+
+def auth_login_post():
+    """POST /auth/login — validate credentials and set JWT cookie."""
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+    else:
+        data = request.form.to_dict()
+
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+
+    expected_username = os.environ.get("AUTH_USERNAME", "")
+    expected_hash = os.environ.get("AUTH_PASSWORD_HASH", "")
+
+    if username != expected_username or not check_password_hash(expected_hash, password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    token = issue_token(username)
+    resp = make_response(jsonify({"message": "Login successful"}))
+    resp.set_cookie(
+        "access_token",
+        token,
+        httponly=True,
+        samesite="Lax",
+        secure=_parse_cookie_secure(),
+    )
+    return resp
+
+
+def auth_logout():
+    """POST /auth/logout — clear the JWT cookie."""
+    resp = make_response(jsonify({"message": "Logged out"}))
+    resp.set_cookie("access_token", "", expires=0)
+    return resp
+
+
+def auth_me():
+    """GET /auth/me — return authentication status."""
+    token = request.cookies.get("access_token")
+    if token:
+        username = verify_token(token)
+        if username is not None:
+            return jsonify({"authenticated": True, "username": username}), 200
+    return jsonify({"authenticated": False}), 200
+
+
 def register_routes(app):
     app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/authors", endpoint="get_authors", view_func=get_authors)
@@ -513,4 +578,22 @@ def register_routes(app):
     app.add_url_rule(
         "/water-meter/readings/<record_id>/delete", endpoint="delete_water_meter_reading_html",
         view_func=delete_water_meter_reading_html, methods=["POST"],
+    )
+
+    # Auth routes
+    app.add_url_rule(
+        "/auth/login", endpoint="auth_login_get",
+        view_func=auth_login_get, methods=["GET"],
+    )
+    app.add_url_rule(
+        "/auth/login", endpoint="auth_login_post",
+        view_func=auth_login_post, methods=["POST"],
+    )
+    app.add_url_rule(
+        "/auth/logout", endpoint="auth_logout",
+        view_func=auth_logout, methods=["POST"],
+    )
+    app.add_url_rule(
+        "/auth/me", endpoint="auth_me",
+        view_func=auth_me, methods=["GET"],
     )

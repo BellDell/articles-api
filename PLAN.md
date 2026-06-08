@@ -1,133 +1,191 @@
-# Plan: Shared write rate limiter
+# Plan: JWT authentication foundation
 
 ## 1. Goal
 
-Add a shared persistent rate limiter for database write/create operations. Limits writes to 5 records per 12 hours per feature (`broken_clock`, `water_meter`) per client IP. Both SQLite and DynamoDB backends are supported.
+Add a small authentication foundation for the Flask app using JWT access tokens stored in an HttpOnly cookie.
 
-## 2. Threat model
+## 2. In scope
 
-The limiter targets accidental or intentional abuse of write endpoints by clients who know the API endpoints and call them directly. It is app-level protection, not a replacement for WAF, auth, or database access controls.
+- New `app/auth/` package with JWT helper functions for issuing and verifying access tokens.
+- Login, logout, and current-user routes added to the existing centralized `app/routes.py`.
+- `GET /auth/login` — renders an HTML login page (no auth required to view).
+- `POST /auth/login` — accepts credentials, returns JSON + sets cookie.
+- `POST /auth/logout` — clears cookie, returns JSON.
+- `GET /auth/me` — always returns 200 with authentication status.
+- Password verification using Werkzeug `check_password_hash`.
+- Environment variables:
+  - `AUTH_USERNAME` — the single allowed username.
+  - `AUTH_PASSWORD_HASH` — a Werkzeug-generated bcrypt hash of the password.
+  - `JWT_SECRET_KEY` — secret used to sign and verify JWT tokens.
+  - `AUTH_COOKIE_SECURE` — toggles the Secure flag on the auth cookie.
+- Cookie behavior:
+  - HttpOnly flag set.
+  - SameSite=Lax.
+  - Secure flag controlled by `AUTH_COOKIE_SECURE` only.
+- Add `PyJWT` to `requirements.txt` if not already present.
+- Tests covering all auth behaviors deterministically.
 
-## 3. In scope
+## 3. Out of scope
 
-- Create `app/core/rate_limit/` package with `__init__.py`.
-- Add public function `consume_write_quota(feature_name, client_ip)` returning `(allowed, retry_after_seconds)`.
-- Add SQLite implementation for local/default backend.
-- Add DynamoDB implementation for App Runner (atomic conditional update on shared table).
-- Apply limiter to `POST /broken-clock/calculate` and `POST /water-meter/readings`.
-- Return HTTP 429 with `Retry-After` header (integer seconds) when exceeded.
-- Add tests for SQLite limiter, DynamoDB limiter, and route-level 429 behavior.
-- DynamoDB uses hashed client IP, not raw IP.
+- User registration.
+- Password reset.
+- Refresh tokens.
+- Roles/permissions.
+- OAuth/social login.
+- CSRF framework integration.
+- Global auth middleware, `app.before_request` enforcement, or redirect-to-login.
+- Protecting existing Broken Clock or Water Meter routes.
+- Adding `user_id` to existing Broken Clock or Water Meter records.
+- Changing existing route URLs.
+- Changing existing JSON response shapes outside new auth routes.
+- Changing existing storage schemas for Broken Clock, Water Meter, or rate limiter.
+- Terraform, Docker, GitHub Actions, App Runner, IAM, or AWS infrastructure changes.
+- Flask-JWT-Extended or other auth frameworks.
+- Broad dependency upgrades.
 
-## 4. Out of scope
+## 4. Behavior
 
-- No Terraform in this step.
-- No WAF, Redis, or auth.
-- No CAPTCHA.
-- No rate limiting for GET routes or DELETE.
-- No changes to existing JSON response shapes (except the new 429 error response).
-- No route URL changes.
-- No changes to Broken Clock or Water Meter normal flow behavior.
+### Routes
 
-## 5. Rate limit key design
+#### `GET /auth/login`
 
-### SQLite
+- Returns HTTP 200 with a small HTML login page.
+- The HTML includes deterministic test markers:
+  - A `<form id="login-form">` element.
+  - An `<input name="username">` element.
+  - An `<input name="password">` element.
+  - A submit button or submit input.
+- No authentication required to view.
 
-- Table: `rate_limit_windows`
-- Rows keyed by `feature_name` + `ip_hash` + `window_start`.
-- A window is a fixed 12-hour bucket aligned to UTC epoch: `(now_epoch_seconds // 43200) * 43200`.
-- Write increments a counter; if counter > 5 after increment, the write is blocked.
+#### `POST /auth/login`
 
-### DynamoDB
+- Accepts JSON body: `{"username": "...", "password": "..."}`.
+- On success (matching `AUTH_USERNAME` and verified against `AUTH_PASSWORD_HASH`):
+  - Sets an HttpOnly cookie named `access_token` containing a signed JWT.
+  - Returns HTTP 200 with body `{"message": "Login successful"}`.
+- On failure (unknown username or wrong password):
+  - Returns HTTP 401 with body `{"error": "Invalid credentials"}`.
+  - Does not set the cookie.
 
-- Reuses the existing shared App Runner DynamoDB table.
-- Partition key: `app_id` (same as other features).
-- Sort key: a deterministic limiter key string of the form:
-  `rate_limit#{feature_name}#{ip_hash}#{window_start_epoch}`
-- This ensures all requests for the same feature / IP hash / 12-hour window update the same DynamoDB item atomically. The sort key is **not** a request creation timestamp — it is a deterministic bucket identifier.
-- Uses a conditional update (atomic counter) to increment the write count — if count exceeds the limit, the write is rejected.
-- Does not use Scan.
-- Does not create table at runtime.
-- Stores a hash of the client IP, not the raw IP.
-- Existing table key schema unchanged: `app_id` (partition key), `created_at` (sort key, but the stored value is the deterministic bucket key described above).
+#### `POST /auth/logout`
 
-### Compatibility note (DynamoDB sort key repurposing)
+- Clears the `access_token` cookie by setting an empty value with immediate expiry.
+- Returns HTTP 200 with body `{"message": "Logged out"}`.
 
-Rate-limit items use a non-timestamp string (`rate_limit#feature#hash#epoch`) in the `created_at` sort-key field. This does not conflict with existing consumers because:
+#### `GET /auth/me`
 
-- Existing code (`get_history`, `get_readings`, `delete_history_record`, `delete_reading`) filters by `entity_type` — rate-limit items have no `entity_type` attribute (or a distinct one) and are never returned by feature-specific queries.
-- The broken-clock and water-meter DynamoDB backends query by `app_id` and then filter by `entity_type` client-side. Rate-limit items (which have no `entity_type` or a different key structure) are excluded by this filter.
-- No secondary indexes, TTL policies, or external tooling currently query the DynamoDB table directly. If TTL-based cleanup is added in a follow-up, rate-limit items will need their own TTL handling.
-- The App Runner instance role policy (PutItem, Query, DescribeTable) is broad enough to cover these new items without changes.
+- Always returns HTTP 200.
+- If a valid, non-expired `access_token` cookie is present:
+  - Body: `{"authenticated": true, "username": "<username from token>"}`
+- If the cookie is missing, invalid, expired, or malformed:
+  - Body: `{"authenticated": false}`
+- Never returns 401.
 
-### Window type
+### JWT token
 
-- Uses **fixed 12-hour windows** aligned to UTC epoch (not sliding windows).
-- At the boundary between two windows, up to 5 writes from the old window + 5 writes from the new window can occur in quick succession. This boundary burst is acceptable for the MVP and documented as a follow-up risk.
+- Signed with HS256 using `JWT_SECRET_KEY`.
+- Contains claims: `sub` (username), `iat` (issued at), `exp` (expiration).
+- Default expiration: 24 hours from issuance.
 
-## 6. Backend responsibilities
+### Cookie configuration
 
-### `app/core/rate_limit/__init__.py`
+- Cookie name: `access_token`.
+- `HttpOnly=True` always.
+- `SameSite=Lax` always.
+- `Secure` flag:
+  - `True` when `AUTH_COOKIE_SECURE` is "true", "1", "yes", or "on" (case-insensitive).
+  - `False` when `AUTH_COOKIE_SECURE` is "false", "0", "no", or "off" (case-insensitive).
+  - `False` when `AUTH_COOKIE_SECURE` is unset or empty (default for local/MVP).
 
-- Public function `consume_write_quota(feature_name, client_ip)`.
-- Returns `(True, 0)` if within quota, `(False, retry_after_seconds)` if exceeded.
-- `retry_after_seconds` is an integer (seconds until the current fixed window ends).
-- Retrieves `app_id` from environment.
-- Delegates to SQLite or DynamoDB based on `STORAGE_BACKEND`.
+### AUTH_COOKIE_SECURE accepted values
 
-### `app/core/rate_limit/storage_sqlite.py`
+| Value (case-insensitive) | Secure flag |
+|---|---|
+| "true", "1", "yes", "on" | True |
+| "false", "0", "no", "off" | False |
+| Missing / empty | False |
 
-- `consume_write_quota(feature_name, client_ip)` — uses atomic INSERT/UPDATE with counter logic.
-- Creates `rate_limit_windows` table if missing (lazy init).
-- Limits: 5 writes per 12-hour fixed window per feature per IP hash.
+### Password verification
 
-### `app/core/rate_limit/storage_dynamodb.py`
+- Werkzeug's `check_password_hash(password, AUTH_PASSWORD_HASH)` is used.
+- `AUTH_USERNAME` is compared case-sensitively.
 
-- `consume_write_quota(feature_name, client_ip)` — uses DynamoDB conditional update to atomically increment a counter.
-- Limits: 5 writes per 12-hour fixed window per feature per IP hash.
-- Uses hashed IP (SHA-256 truncated) as part of the deterministic sort key.
-- The sort key format: `rate_limit#{feature_name}#{ip_hash}#{window_start_epoch}`.
-- No table creation at runtime.
+### Dependencies
+
+- `PyJWT` — the only new direct dependency.
+- Werkzeug password utilities are already available via Flask's dependency chain. No separate dependency declaration needed unless the project convention requires listing direct imports explicitly.
+
+## 5. Backward compatibility
+
+- Existing route URLs remain unchanged.
+- Existing Broken Clock behavior remains unchanged.
+- Existing Water Meter behavior remains unchanged.
+- Existing rate limiter behavior remains unchanged.
+- No global auth middleware intercepts or blocks any existing route.
+- Existing tests must keep passing.
 - No AWS calls at import time.
+- Tests must not make real AWS calls.
 
-## 7. Route behavior
+## 6. Test strategy
 
-- `POST /broken-clock/calculate` — call limiter **after** request parsing and validation succeeds, **immediately before** the database write. Invalidation errors (400) must not consume quota.
-- `POST /water-meter/readings` — same placement: after validation, before DB write.
-- If the limiter allows the request but the subsequent DB write fails, the consumed quota is accepted as a tradeoff (no rollback mechanism in this step).
-- 429 response shape: `{"error": "Rate limit exceeded. Try again later."}` with status 429 and `Retry-After: <seconds>` header (integer).
-- Rate-limited requests must not write to the feature storage.
+### Deterministic expired token tests
 
-## 8. IP handling
+- The JWT helper accepts an optional `expires_in` parameter (or similar) for token issuance.
+- Tests create an explicitly expired token by passing a delta of zero or negative seconds.
+- No sleeping or real waiting in tests.
 
-- Use `request.remote_addr` for MVP (Flask's direct client IP from the request socket).
-- Hash the IP with SHA-256 (first 16 hex chars) before storing in the database.
-- `X-Forwarded-For` and `ProxyFix` are out of scope for this step but documented as a follow-up.
+### Unit tests — JWT helpers
 
-## 9. Test strategy
+- `issue_token(username)` returns a string JWT.
+- `verify_token(token)` returns the username for a valid token.
+- `verify_token(token)` returns `None` for an expired token (created deterministically via test helper).
+- `verify_token(token)` returns `None` for a tampered / bad-signature token.
 
-- All existing 107 tests pass unchanged.
-- SQLite limiter tests:
-  - First 5 writes are allowed.
-  - 6th write in the same fixed window is blocked.
-  - A new fixed window resets the quota.
-  - Different IPs have independent quotas.
-- DynamoDB limiter tests:
-  - Uses mocked boto3 — no real AWS calls.
-  - First 5 writes allowed via conditional update.
-  - 6th write blocked.
-  - Hashed IP is stored, not raw IP.
-  - Sort key uses the deterministic `rate_limit#...` format.
-- Route tests:
-  - 5 normal POSTs succeed; 6th returns 429 JSON.
-  - 429 response contains `Retry-After` header (integer).
-  - Validating error (400) does not consume quota.
-  - Existing route behavior (validation errors, success redirects) unchanged.
+### Route tests — `POST /auth/login`
 
-## 10. Follow-up steps
+- Valid credentials → status 200, body `{"message": "Login successful"}`, response has `Set-Cookie` header containing `access_token`.
+- Invalid username → status 401, body `{"error": "Invalid credentials"}`.
+- Invalid password → status 401, body `{"error": "Invalid credentials"}`.
+- Missing body fields → appropriate 400-level error.
 
-- Add `X-Forwarded-For` / `ProxyFix` support when behind a reverse proxy.
-- Add Terraform DynamoDB TTL for automatic cleanup of expired rate limit items.
-- Add rate limit for DELETE endpoints.
-- Consider moving from app-level limiter to WAF-based rate limiting for production.
-- Consider switching to sliding windows if fixed-window boundary bursts become an issue.
+### Route tests — `POST /auth/logout`
+
+- Response status 200, body `{"message": "Logged out"}`, cookie cleared (empty value, past expiry).
+
+### Route tests — `GET /auth/me`
+
+- Authenticated (valid cookie) → status 200, body `{"authenticated": true, "username": "<username>"}`.
+- Anonymous (no cookie) → status 200, body `{"authenticated": false}`.
+- Expired token cookie → status 200, body `{"authenticated": false}`.
+- Invalid/tampered token cookie → status 200, body `{"authenticated": false}`.
+
+### Route tests — `GET /auth/login`
+
+- Status 200, response is HTML containing username input, password input, and submit action.
+
+### Cookie tests
+
+- Assert the cookie name is `access_token`.
+- Assert `HttpOnly` attribute is present.
+- Assert `SameSite=Lax` attribute is present.
+- Set `AUTH_COOKIE_SECURE=false` and assert `Secure` is absent from the cookie.
+- Set `AUTH_COOKIE_SECURE=true` and assert `Secure` is present.
+
+### Test setup
+
+- `monkeypatch` to set `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `JWT_SECRET_KEY`, and `AUTH_COOKIE_SECURE`.
+- No real production secrets.
+- No AWS calls.
+
+### Run commands
+
+- `python -m pytest -q`
+- `python -W error::ResourceWarning -m pytest -q`
+
+## 7. Follow-up steps
+
+- Protect existing Broken Clock and Water Meter routes behind authentication.
+- Add role-based access or multi-user support.
+- Add refresh token rotation.
+- Add CSRF protection for cookie-based auth.
+- Transition to OAuth2 / social login if needed.
