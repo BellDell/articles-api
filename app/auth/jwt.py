@@ -6,8 +6,16 @@ from datetime import datetime, timedelta, timezone
 import jwt
 
 
+class MissingJwtSecretError(RuntimeError):
+    """Raised when JWT_SECRET_KEY is missing, empty, or whitespace-only."""
+    pass
+
+
 def _get_secret():
-    return os.environ["JWT_SECRET_KEY"]
+    secret = os.environ.get("JWT_SECRET_KEY", "")
+    if not secret or not secret.strip():
+        raise MissingJwtSecretError("JWT_SECRET_KEY is required")
+    return secret
 
 
 def issue_token(username, expires_in=86400):

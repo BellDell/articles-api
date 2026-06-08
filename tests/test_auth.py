@@ -6,7 +6,7 @@ import pytest
 from werkzeug.security import generate_password_hash
 
 from app.app import app
-from app.auth.jwt import issue_token, verify_token
+from app.auth.jwt import issue_token, verify_token, MissingJwtSecretError
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +58,82 @@ class TestJwtHelpers:
 
     def test_verify_token_empty(self):
         assert verify_token("") is None
+
+
+# ---------------------------------------------------------------------------
+# MissingJwtSecretError tests (JWT helper level)
+# ---------------------------------------------------------------------------
+
+class TestMissingJwtSecretError:
+    """Prove MissingJwtSecretError is raised for missing/bad JWT_SECRET_KEY."""
+
+    # --- Unset / missing ---
+
+    def test_issue_token_missing_unset_raises(self, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        with pytest.raises(MissingJwtSecretError) as exc:
+            issue_token("alice")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+        assert not isinstance(exc.value, KeyError)
+
+    def test_verify_token_missing_unset_raises(self, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        with pytest.raises(MissingJwtSecretError) as exc:
+            verify_token("some.token.value")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+        assert not isinstance(exc.value, KeyError)
+
+    # --- Empty string ---
+
+    def test_issue_token_empty_raises(self, monkeypatch):
+        monkeypatch.setenv("JWT_SECRET_KEY", "")
+        with pytest.raises(MissingJwtSecretError) as exc:
+            issue_token("alice")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+
+    def test_verify_token_empty_raises(self, monkeypatch):
+        monkeypatch.setenv("JWT_SECRET_KEY", "")
+        with pytest.raises(MissingJwtSecretError) as exc:
+            verify_token("some.token.value")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+
+    # --- Whitespace-only ---
+
+    def test_issue_token_whitespace_raises(self, monkeypatch):
+        monkeypatch.setenv("JWT_SECRET_KEY", "   ")
+        with pytest.raises(MissingJwtSecretError) as exc:
+            issue_token("alice")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+
+    def test_verify_token_whitespace_raises(self, monkeypatch):
+        monkeypatch.setenv("JWT_SECRET_KEY", "   ")
+        with pytest.raises(MissingJwtSecretError) as exc:
+            verify_token("some.token.value")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+
+    # --- KeyError explicitly not raised ---
+
+    def test_missing_does_not_raise_keyerror(self, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        try:
+            issue_token("alice")
+        except MissingJwtSecretError:
+            pass
+        except KeyError:
+            pytest.fail("KeyError was raised instead of MissingJwtSecretError")
+
+    # --- Existing behavior preserved when key is set ---
+
+    def test_issue_token_works_when_set(self):
+        os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-testing-1234567890"
+        token = issue_token("alice")
+        assert isinstance(token, str)
+        assert len(token) > 0
+
+    def test_verify_token_works_when_set(self):
+        os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-testing-1234567890"
+        token = issue_token("bob")
+        assert verify_token(token) == "bob"
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +460,41 @@ class TestAuthRegisterPost:
         })
         assert resp.status_code == 409
         assert resp.get_json() == {"error": "Username already exists"}
+
+
+# ---------------------------------------------------------------------------
+# MissingJwtSecretError route-level tests
+# ---------------------------------------------------------------------------
+
+class TestMissingJwtSecretRoute:
+    """Prove MissingJwtSecretError propagates through routes when secret is missing."""
+
+    def test_login_propagates_missing_secret(self, client, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        with pytest.raises(MissingJwtSecretError) as exc:
+            client.post("/auth/login", json={
+                "username": "admin", "password": "secret123",
+            })
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+        assert not isinstance(exc.value, KeyError)
+
+    def test_me_propagates_missing_secret(self, client, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        client.set_cookie("access_token", "some.dummy.token")
+        with pytest.raises(MissingJwtSecretError) as exc:
+            client.get("/auth/me")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+        assert not isinstance(exc.value, KeyError)
+
+    def test_registration_works_without_secret(self, client, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        resp = client.post("/auth/register", json={
+            "username": "register_no_secret",
+            "password": "pass123",
+            "confirm_password": "pass123",
+        })
+        assert resp.status_code == 201
+        assert resp.get_json() == {"message": "User registered"}
 
     def test_case_insensitive_duplicate(self, client):
         client.post("/auth/register", json={

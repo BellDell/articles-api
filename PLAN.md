@@ -355,8 +355,77 @@ This applies to both SQLite and DynamoDB.
 - `python -m pytest -q`
 - `python -W error::ResourceWarning -m pytest -q`
 
-## 7. Follow-up steps
+## 7. JWT_SECRET_KEY configuration handling
 
+### Problem
+
+`app/auth/jwt.py` uses `os.environ["JWT_SECRET_KEY"]` directly. If the env var is missing, Python raises an opaque `KeyError: 'JWT_SECRET_KEY'` at the point of token issue or verification. The error gives no guidance to a local developer on how to fix it.
+
+### 1. Named exception
+
+- `app/auth/jwt.py` defines `MissingJwtSecretError`.
+- `MissingJwtSecretError` is the **only** expected exception type for missing `JWT_SECRET_KEY` in JWT helper code.
+
+### 2. Missing / blank / whitespace-only secret behavior
+
+- `JWT_SECRET_KEY` missing from the environment raises `MissingJwtSecretError`.
+- `JWT_SECRET_KEY` set to an empty string raises `MissingJwtSecretError`.
+- `JWT_SECRET_KEY` set to a whitespace-only string raises `MissingJwtSecretError`.
+- Missing, empty, and whitespace-only `JWT_SECRET_KEY` must **not** raise `KeyError`.
+
+### 3. Exact message
+
+- `str(error)` must contain:
+  `JWT_SECRET_KEY is required`
+
+### 4. Helper behavior
+
+- `issue_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing, empty, or whitespace-only.
+- `verify_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing, empty, or whitespace-only.
+- Existing `issue_token()` and `verify_token()` behavior remains unchanged when `JWT_SECRET_KEY` is configured.
+
+### 5. Route behavior and test surface
+
+- **Do not add a new JSON 500 API response contract** in this PR.
+- Routes that need token issuing or token verification (`/auth/login`, `/auth/me`) may let `MissingJwtSecretError` propagate to Flask/default 500 handling.
+- Tests must assert the **Python exception type/message**, not search for text in a normal production HTTP 500 body.
+- Route-level tests must enable Flask exception propagation or directly call the relevant token path so `MissingJwtSecretError` can be asserted.
+
+### 6. Required tests
+
+- Test `issue_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing.
+- Test `issue_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is empty or whitespace-only.
+- Test `verify_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing.
+- Test `verify_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is empty or whitespace-only.
+- Test the exception message contains:
+  `JWT_SECRET_KEY is required`
+- Test `KeyError` is **not** raised.
+- Test `POST /auth/login` with valid credentials and missing `JWT_SECRET_KEY` raises `MissingJwtSecretError` with exception propagation enabled.
+- Test `/auth/me` token verification path with missing `JWT_SECRET_KEY` raises `MissingJwtSecretError` with exception propagation enabled or by directly invoking `verify_token()`.
+- Test registration still works without `JWT_SECRET_KEY` because registration does not issue tokens.
+- Existing auth tests with `JWT_SECRET_KEY` configured continue passing.
+
+### 7. Preserved scope
+
+- `JWT_SECRET_KEY` remains required.
+- No hardcoded fallback secret.
+- No random secret generated at runtime.
+- No JWT algorithm changes.
+- No token expiry changes.
+- No auth cookie behavior changes.
+- No login credential validation changes.
+- No registration behavior changes.
+- No Broken Clock or Water Meter changes.
+- No styling/docs/infra/Terraform/Docker/GitHub Actions/App Runner/IAM changes.
+
+### Run commands
+
+- `python -m pytest -q`
+- `python -W error::ResourceWarning -m pytest -q`
+
+## 8. Follow-up steps
+
+- Add local setup documentation or `.env.example` in a separate documentation/config PR.
 - Add route protection in a later PR.
 - Add user ownership for feature records in a later PR.
 - Consider password policy hardening in a later PR.
