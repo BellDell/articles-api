@@ -1,133 +1,431 @@
-# Plan: Shared write rate limiter
+# Plan: Simple username/password registration
 
 ## 1. Goal
 
-Add a shared persistent rate limiter for database write/create operations. Limits writes to 5 records per 12 hours per feature (`broken_clock`, `water_meter`) per client IP. Both SQLite and DynamoDB backends are supported.
+Extend the JWT authentication foundation to support multiple registered users instead of a single env-var user. Add registration routes, persistent user storage (SQLite / DynamoDB), and update login to authenticate against stored users.
 
-## 2. Threat model
+## 2. In scope
 
-The limiter targets accidental or intentional abuse of write endpoints by clients who know the API endpoints and call them directly. It is app-level protection, not a replacement for WAF, auth, or database access controls.
+- New `app/auth/storage.py` — storage facade (follows `app/broken_clock/storage.py` pattern).
+  - Delegates to SQLite or DynamoDB based on `STORAGE_BACKEND` env var.
+  - Functions: `create_user`, `get_user_by_username`.
+  - Defines `DuplicateUserError` domain exception.
+  - `create_user` raises `DuplicateUserError` for duplicate usernames only.
+  - Routes catch only `DuplicateUserError` for HTTP 409; unexpected exceptions propagate.
 
-## 3. In scope
+- New `app/auth/storage_sqlite.py` — SQLite implementation.
+  - Table `auth_users` with columns: `username_canonical TEXT PRIMARY KEY`, `password_hash TEXT`, `created_at TEXT`.
+  - Uniqueness enforced by PRIMARY KEY on `username_canonical`.
+  - Werkzeug `generate_password_hash` for hashing.
+  - Idempotent `ensure_db_initialized`.
+  - `sqlite3.IntegrityError` from duplicate insert must be caught and raised as `DuplicateUserError`.
+  - `DuplicateUserError` is then mapped to HTTP 409 with body `{"error": "Username already exists"}`.
 
-- Create `app/core/rate_limit/` package with `__init__.py`.
-- Add public function `consume_write_quota(feature_name, client_ip)` returning `(allowed, retry_after_seconds)`.
-- Add SQLite implementation for local/default backend.
-- Add DynamoDB implementation for App Runner (atomic conditional update on shared table).
-- Apply limiter to `POST /broken-clock/calculate` and `POST /water-meter/readings`.
-- Return HTTP 429 with `Retry-After` header (integer seconds) when exceeded.
-- Add tests for SQLite limiter, DynamoDB limiter, and route-level 429 behavior.
-- DynamoDB uses hashed client IP, not raw IP.
+- New `app/auth/storage_dynamodb.py` — DynamoDB implementation.
+  - Reuses the existing shared DynamoDB table.
+  - Preserves the existing table key schema: partition key is `app_id`, sort key is `created_at`.
+  - Auth user item key:
+    - `app_id` = existing application id used by the shared table helper.
+    - `created_at` = `"auth_user#<username_canonical>"`.
+  - Auth user item attributes include:
+    - `entity_type` = `"auth_user"`.
+    - `username` = `username_canonical`.
+    - `password_hash`.
+    - `registered_at`, if an actual creation timestamp is needed.
+  - User lookup by username uses `GetItem` with `app_id` and `created_at = "auth_user#<username_canonical>"`.
+  - User creation uses `PutItem` with `ConditionExpression` for atomic create-if-not-exists.
+  - The `ConditionExpression` must fail if the deterministic key already exists.
+  - Conditional `PutItem` failure (`ConditionalCheckFailedException`) must be caught and raised as `DuplicateUserError`.
+  - `DuplicateUserError` is then mapped to HTTP 409 with body `{"error": "Username already exists"}`.
+  - No table creation at runtime.
+  - No `boto3` calls at import time (lazy import).
+  - Do not use `Scan`.
+  - Do not use `Query` + client-side filtering for username uniqueness.
 
-## 4. Out of scope
+- New route `GET /auth/register` — returns HTTP 200 with an HTML registration form.
+  - Form includes deterministic test markers: `form id="register-form"`, `input name="username"`, `input name="password"`, `input name="confirm_password"`, submit control.
 
-- No Terraform in this step.
-- No WAF, Redis, or auth.
-- No CAPTCHA.
-- No rate limiting for GET routes or DELETE.
-- No changes to existing JSON response shapes (except the new 429 error response).
-- No route URL changes.
-- No changes to Broken Clock or Water Meter normal flow behavior.
+- New route `POST /auth/register` — accepts form data or JSON.
+  - On success: HTTP 201, body `{"message": "User registered"}`.
+  - Registration does not auto-login the user.
+  - Registration does not set the `access_token` cookie.
+  - Plaintext password is never stored.
+  - Password is stored only as `password_hash`.
+  - HTTP route responses must never include `password_hash`.
+  - If `username_canonical` already exists: HTTP 409, body `{"error": "Username already exists"}`.
+  - If username, password, or confirm_password is missing, empty string, or whitespace-only: HTTP 400, body `{"error": "Username, password, and confirm password are required"}`.
+  - If password and confirm_password do not match after required-field validation: HTTP 400, body `{"error": "Passwords do not match"}`.
 
-## 5. Rate limit key design
+- Update `POST /auth/login` — authenticate against stored users, with env-var fallback.
+  - Existing JWT issuing, cookie behavior, and response shapes unchanged.
+  - `POST /auth/login` first canonicalizes username using `username.strip().casefold()`.
+  - `POST /auth/login` first checks stored auth users.
+  - If a stored user exists, only that stored user's `password_hash` is checked.
+  - If a stored user exists and password is wrong, login fails with HTTP 401, body `{"error": "Invalid credentials"}`.
+  - Env fallback using `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` is checked only if no stored user exists.
+  - If stored user and env-user have the same canonical username, the stored user wins.
 
-### SQLite
+- New template `app/templates/auth/register.html` — minimal HTML form.
 
-- Table: `rate_limit_windows`
-- Rows keyed by `feature_name` + `ip_hash` + `window_start`.
-- A window is a fixed 12-hour bucket aligned to UTC epoch: `(now_epoch_seconds // 43200) * 43200`.
-- Write increments a counter; if counter > 5 after increment, the write is blocked.
+## 3. Out of scope
 
-### DynamoDB
+- Email, first name, last name fields.
+- Password reset, email verification.
+- Roles, permissions, OAuth.
+- Refresh tokens, CSRF framework.
+- Login-required route protection.
+- User ownership for Broken Clock or Water Meter records.
+- Changing existing Broken Clock or Water Meter routes or storage schemas.
+- Terraform, Docker, GitHub Actions, App Runner, IAM, or AWS infrastructure.
+- No global auth middleware/enforcement.
+- No `app.before_request` blocking behavior.
 
-- Reuses the existing shared App Runner DynamoDB table.
-- Partition key: `app_id` (same as other features).
-- Sort key: a deterministic limiter key string of the form:
-  `rate_limit#{feature_name}#{ip_hash}#{window_start_epoch}`
-- This ensures all requests for the same feature / IP hash / 12-hour window update the same DynamoDB item atomically. The sort key is **not** a request creation timestamp — it is a deterministic bucket identifier.
-- Uses a conditional update (atomic counter) to increment the write count — if count exceeds the limit, the write is rejected.
-- Does not use Scan.
-- Does not create table at runtime.
-- Stores a hash of the client IP, not the raw IP.
-- Existing table key schema unchanged: `app_id` (partition key), `created_at` (sort key, but the stored value is the deterministic bucket key described above).
+## 4. Behavior
 
-### Compatibility note (DynamoDB sort key repurposing)
+### Username canonicalization
 
-Rate-limit items use a non-timestamp string (`rate_limit#feature#hash#epoch`) in the `created_at` sort-key field. This does not conflict with existing consumers because:
+- `username_canonical = username.strip().casefold()`
+- All user storage writes use `username_canonical`.
+- All user lookups/login checks use `username_canonical`.
+- Username uniqueness is enforced on `username_canonical`.
+- Therefore `"Admin"`, `" admin "`, and `"admin"` are the same username.
 
-- Existing code (`get_history`, `get_readings`, `delete_history_record`, `delete_reading`) filters by `entity_type` — rate-limit items have no `entity_type` attribute (or a distinct one) and are never returned by feature-specific queries.
-- The broken-clock and water-meter DynamoDB backends query by `app_id` and then filter by `entity_type` client-side. Rate-limit items (which have no `entity_type` or a different key structure) are excluded by this filter.
-- No secondary indexes, TTL policies, or external tooling currently query the DynamoDB table directly. If TTL-based cleanup is added in a follow-up, rate-limit items will need their own TTL handling.
-- The App Runner instance role policy (PutItem, Query, DescribeTable) is broad enough to cover these new items without changes.
+### Blank / whitespace-only fields
 
-### Window type
+- Empty string or whitespace-only username is treated as missing.
+- Empty string or whitespace-only password is treated as missing.
+- Empty string or whitespace-only confirm_password is treated as missing.
 
-- Uses **fixed 12-hour windows** aligned to UTC epoch (not sliding windows).
-- At the boundary between two windows, up to 5 writes from the old window + 5 writes from the new window can occur in quick succession. This boundary burst is acceptable for the MVP and documented as a follow-up risk.
+For missing/blank username, password, or confirm_password:
+- HTTP 400
+- response body exactly: `{"error": "Username, password, and confirm password are required"}`
 
-## 6. Backend responsibilities
+### Password mismatch
 
-### `app/core/rate_limit/__init__.py`
+If password and confirm_password do not match after required-field validation:
+- HTTP 400
+- response body exactly: `{"error": "Passwords do not match"}`
 
-- Public function `consume_write_quota(feature_name, client_ip)`.
-- Returns `(True, 0)` if within quota, `(False, retry_after_seconds)` if exceeded.
-- `retry_after_seconds` is an integer (seconds until the current fixed window ends).
-- Retrieves `app_id` from environment.
-- Delegates to SQLite or DynamoDB based on `STORAGE_BACKEND`.
+### Successful registration
 
-### `app/core/rate_limit/storage_sqlite.py`
+- HTTP 201
+- response body exactly: `{"message": "User registered"}`
+- Registration does not auto-login the user.
+- Registration does not set the `access_token` cookie.
+- Plaintext password is never stored.
+- Password is stored only as `password_hash`.
+- HTTP route responses must never include `password_hash`.
 
-- `consume_write_quota(feature_name, client_ip)` — uses atomic INSERT/UPDATE with counter logic.
-- Creates `rate_limit_windows` table if missing (lazy init).
-- Limits: 5 writes per 12-hour fixed window per feature per IP hash.
+### Duplicate username behavior
 
-### `app/core/rate_limit/storage_dynamodb.py`
+If `username_canonical` already exists:
+- HTTP 409
+- response body exactly: `{"error": "Username already exists"}`
 
-- `consume_write_quota(feature_name, client_ip)` — uses DynamoDB conditional update to atomically increment a counter.
-- Limits: 5 writes per 12-hour fixed window per feature per IP hash.
-- Uses hashed IP (SHA-256 truncated) as part of the deterministic sort key.
-- The sort key format: `rate_limit#{feature_name}#{ip_hash}#{window_start_epoch}`.
+This applies to both SQLite and DynamoDB.
+
+### SQLite uniqueness
+
+- SQLite stores users keyed by `username_canonical`.
+- SQLite users table must enforce uniqueness using PRIMARY KEY or UNIQUE constraint on `username_canonical`.
+- `sqlite3.IntegrityError` from duplicate insert must be caught and translated to:
+  - HTTP 409
+  - body exactly: `{"error": "Username already exists"}`
+
+### DynamoDB exact key design
+
+- Reuse the existing shared DynamoDB table.
+- Preserve the existing table key schema:
+  - partition key: `app_id`
+  - sort key: `created_at`
+- Auth user item key:
+  - `app_id` = existing application id used by the shared table helper.
+  - `created_at` = `"auth_user#<username_canonical>"`
+- Auth user item attributes include:
+  - `entity_type` = `"auth_user"`
+  - `username` = `username_canonical`
+  - `password_hash`
+  - `registered_at`, if an actual creation timestamp is needed
+
+### DynamoDB lookup and atomic create
+
+- Do not use `Scan`.
+- Do not use `Query` + client-side filtering for username uniqueness.
+- User lookup by username must use `GetItem` with:
+  - `app_id`
+  - `created_at` = `"auth_user#<username_canonical>"`
+- User creation must use `PutItem` with `ConditionExpression` for atomic create-if-not-exists.
+- The `ConditionExpression` must fail if the deterministic key already exists.
+- Conditional `PutItem` failure must be translated to:
+  - HTTP 409
+  - body exactly: `{"error": "Username already exists"}`
 - No table creation at runtime.
 - No AWS calls at import time.
 
-## 7. Route behavior
+### Login precedence
 
-- `POST /broken-clock/calculate` — call limiter **after** request parsing and validation succeeds, **immediately before** the database write. Invalidation errors (400) must not consume quota.
-- `POST /water-meter/readings` — same placement: after validation, before DB write.
-- If the limiter allows the request but the subsequent DB write fails, the consumed quota is accepted as a tradeoff (no rollback mechanism in this step).
-- 429 response shape: `{"error": "Rate limit exceeded. Try again later."}` with status 429 and `Retry-After: <seconds>` header (integer).
-- Rate-limited requests must not write to the feature storage.
+- `POST /auth/login` first canonicalizes username using `username.strip().casefold()`.
+- `POST /auth/login` first checks stored auth users.
+- If a stored user exists, only that stored user's `password_hash` is checked.
+- If a stored user exists and password is wrong, login fails with:
+  - HTTP 401
+  - body exactly: `{"error": "Invalid credentials"}`
+- Env fallback using `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` is checked only if no stored user exists.
+- If stored user and env-user have the same canonical username, the stored user wins.
 
-## 8. IP handling
+### GET /auth/register
 
-- Use `request.remote_addr` for MVP (Flask's direct client IP from the request socket).
-- Hash the IP with SHA-256 (first 16 hex chars) before storing in the database.
-- `X-Forwarded-For` and `ProxyFix` are out of scope for this step but documented as a follow-up.
+- HTTP 200 with HTML registration form.
+- Deterministic test markers: `form id="register-form"`, `input name="username"`, `input name="password"`, `input name="confirm_password"`, submit control.
 
-## 9. Test strategy
+### Unchanged
 
-- All existing 107 tests pass unchanged.
-- SQLite limiter tests:
-  - First 5 writes are allowed.
-  - 6th write in the same fixed window is blocked.
-  - A new fixed window resets the quota.
-  - Different IPs have independent quotas.
-- DynamoDB limiter tests:
-  - Uses mocked boto3 — no real AWS calls.
-  - First 5 writes allowed via conditional update.
-  - 6th write blocked.
-  - Hashed IP is stored, not raw IP.
-  - Sort key uses the deterministic `rate_limit#...` format.
-- Route tests:
-  - 5 normal POSTs succeed; 6th returns 429 JSON.
-  - 429 response contains `Retry-After` header (integer).
-  - Validating error (400) does not consume quota.
-  - Existing route behavior (validation errors, success redirects) unchanged.
+- GET /auth/login, POST /auth/logout, GET /auth/me — behavior, response shapes, cookie config all unchanged.
+- GET /auth/me never leaks `password_hash`.
 
-## 10. Follow-up steps
+## 5. Backward compatibility
 
-- Add `X-Forwarded-For` / `ProxyFix` support when behind a reverse proxy.
-- Add Terraform DynamoDB TTL for automatic cleanup of expired rate limit items.
-- Add rate limit for DELETE endpoints.
-- Consider moving from app-level limiter to WAF-based rate limiting for production.
-- Consider switching to sliding windows if fixed-window boundary bursts become an issue.
+- All existing route URLs unchanged.
+- Existing auth response shapes outside new/updated routes unchanged.
+- Existing Broken Clock, Water Meter, rate limiter behavior unchanged.
+- No global auth middleware or `app.before_request` blocking.
+- Existing tests must keep passing.
+
+## Registration contract clarifications
+
+### Username canonicalization
+
+* username_canonical = username.strip().casefold()
+* All user storage writes use username_canonical.
+* All user lookups and login checks use username_canonical.
+* Username uniqueness is enforced on username_canonical.
+* "Admin", " admin ", and "admin" are the same username.
+
+### Blank field handling
+
+* Empty string or whitespace-only username is treated as missing.
+* Empty string or whitespace-only password is treated as missing.
+* Empty string or whitespace-only confirm_password is treated as missing.
+* Missing or blank username, password, or confirm_password returns HTTP 400 with:
+  {"error": "Username, password, and confirm password are required"}
+
+### Password mismatch
+
+* If password and confirm_password do not match after required-field validation, return HTTP 400 with:
+  {"error": "Passwords do not match"}
+
+### Successful registration
+
+* Successful registration returns HTTP 201 with:
+  {"message": "User registered"}
+* Registration does not auto-login the user.
+* Successful registration does not set the access_token cookie.
+* Plaintext password is never stored.
+* Password is stored only as password_hash.
+* password_hash must never appear in HTTP route responses.
+
+### Duplicate username
+
+* If username_canonical already exists, `storage.create_user` raises `DuplicateUserError`.
+* The route catches `DuplicateUserError` and returns HTTP 409 with:
+  {"error": "Username already exists"}
+* Unexpected storage errors are not caught; they propagate to Flask default 500 handling.
+* This duplicate behavior applies to both SQLite and DynamoDB.
+
+### SQLite uniqueness
+
+* SQLite stores users keyed by username_canonical.
+* SQLite users table must enforce uniqueness using PRIMARY KEY or UNIQUE constraint on username_canonical.
+* sqlite3.IntegrityError from duplicate insert must be caught and raised as DuplicateUserError.
+* DuplicateUserError maps to HTTP 409 with:
+  {"error": "Username already exists"}
+
+### DynamoDB key design
+
+* Reuse the existing shared DynamoDB table.
+* Preserve the existing table key schema:
+
+  * partition key: app_id
+  * sort key: created_at
+* Auth user item key:
+
+  * app_id = existing application id used by the shared table helper
+  * created_at = "auth_user#<username_canonical>"
+* Auth user item attributes include:
+
+  * entity_type = "auth_user"
+  * username = username_canonical
+  * password_hash
+  * registered_at, if an actual creation timestamp is needed
+
+### DynamoDB lookup and atomic create
+
+* Do not use Scan.
+* Do not use Query + client-side filtering for username uniqueness.
+* User lookup by username must use GetItem with:
+
+  * app_id
+  * created_at = "auth_user#<username_canonical>"
+* User creation must use PutItem with ConditionExpression for atomic create-if-not-exists.
+* The ConditionExpression must fail if the deterministic key already exists.
+* Conditional PutItem failure must raise DuplicateUserError.
+* DuplicateUserError maps to HTTP 409 with:
+  {"error": "Username already exists"}
+* No table creation at runtime.
+* No AWS calls at import time.
+
+### Login precedence
+
+* POST /auth/login first canonicalizes username using username.strip().casefold().
+* POST /auth/login first checks stored auth users.
+* If a stored user exists, only that stored user's password_hash is checked.
+* If a stored user exists and password is wrong, login fails with HTTP 401 and:
+  {"error": "Invalid credentials"}
+* Env fallback using AUTH_USERNAME/AUTH_PASSWORD_HASH is checked only if no stored user exists.
+* If stored user and env-user have the same canonical username, the stored user wins.
+
+### Required tests
+
+* Test username.strip().casefold() canonicalization.
+* Test "Admin", " admin ", and "admin" are treated as the same username.
+* Test whitespace-only username/password/confirm_password return the missing-field HTTP 400 response.
+* Test successful registration does not set access_token.
+* Test successful registration stores password_hash, not plaintext password.
+* Test registration, login, and /auth/me responses never include password_hash.
+* Test duplicate username returns HTTP 409.
+* Test unexpected storage errors (e.g. RuntimeError) are not mapped to HTTP 409.
+* Test SQLite duplicate sqlite3.IntegrityError maps to DuplicateUserError / HTTP 409.
+* Test DynamoDB GetItem is used for lookup.
+* Test DynamoDB PutItem uses ConditionExpression for atomic create.
+* Test DynamoDB conditional failure maps to HTTP 409.
+* Test stored user login succeeds.
+* Test wrong stored-user password fails.
+* Test env fallback works only when no stored user exists.
+* Test stored user wins over env fallback when usernames conflict.
+* Test DynamoDB tests mock/stub boto3 and make no real AWS calls.
+
+## 6. Test strategy
+
+### Route tests
+
+- GET /auth/register loads (200).
+- Register page contains `id="register-form"`, username/password/confirm_password inputs.
+- `username.strip().casefold()` canonicalization.
+- `"Admin"`, `" admin "`, and `"admin"` treated as the same username.
+- Successful registration returns 201 and `{"message": "User registered"}`.
+- Successful registration does **not** set `access_token` cookie.
+- Successful registration stores `password_hash`, not plaintext password.
+- Registration/login/me responses never include `password_hash`.
+- Duplicate username returns 409 and `{"error": "Username already exists"}`.
+- SQLite duplicate `IntegrityError` maps to 409.
+- Whitespace-only username/password/confirm_password return the missing-field 400 response.
+- Missing or whitespace-only fields return 400 with `{"error": "Username, password, and confirm password are required"}`.
+- Password mismatch returns 400 with `{"error": "Passwords do not match"}`.
+- Stored user login succeeds.
+- Wrong stored-user password fails with 401 and `{"error": "Invalid credentials"}`.
+- /auth/me returns `"authenticated": true` after registered-user login.
+- Env fallback works only when no stored user exists.
+- Stored user wins over env fallback when usernames conflict.
+
+### Storage tests — SQLite
+
+- `create_user` inserts a row; `get_user_by_username` retrieves it.
+- `user_exists` returns True/False correctly.
+- Password hash is a valid Werkzeug hash.
+- Duplicate insert raises `IntegrityError` → maps to 409.
+
+### Storage tests — DynamoDB
+
+- Mock/stub `boto3` — no real AWS calls.
+- Test `create_user`, `get_user_by_username`.
+- Verify `entity_type = "auth_user"` is set.
+- Verify deterministic key: `created_at = "auth_user#<username_canonical>"`.
+- Verify lookup uses `GetItem`.
+- Verify create uses `PutItem` with `ConditionExpression`.
+- Verify conditional failure maps to 409.
+- DynamoDB tests mock/stub boto3 and make no real AWS calls.
+
+### Test setup
+
+- `tmp_path` / `monkeypatch` for SQLite paths and environment variables.
+- No real AWS calls.
+
+### Run commands
+
+- `python -m pytest -q`
+- `python -W error::ResourceWarning -m pytest -q`
+
+## 7. JWT_SECRET_KEY configuration handling
+
+### Problem
+
+`app/auth/jwt.py` uses `os.environ["JWT_SECRET_KEY"]` directly. If the env var is missing, Python raises an opaque `KeyError: 'JWT_SECRET_KEY'` at the point of token issue or verification. The error gives no guidance to a local developer on how to fix it.
+
+### 1. Named exception
+
+- `app/auth/jwt.py` defines `MissingJwtSecretError`.
+- `MissingJwtSecretError` is the **only** expected exception type for missing `JWT_SECRET_KEY` in JWT helper code.
+
+### 2. Missing / blank / whitespace-only secret behavior
+
+- `JWT_SECRET_KEY` missing from the environment raises `MissingJwtSecretError`.
+- `JWT_SECRET_KEY` set to an empty string raises `MissingJwtSecretError`.
+- `JWT_SECRET_KEY` set to a whitespace-only string raises `MissingJwtSecretError`.
+- Missing, empty, and whitespace-only `JWT_SECRET_KEY` must **not** raise `KeyError`.
+
+### 3. Exact message
+
+- `str(error)` must contain:
+  `JWT_SECRET_KEY is required`
+
+### 4. Helper behavior
+
+- `issue_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing, empty, or whitespace-only.
+- `verify_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing, empty, or whitespace-only.
+- Existing `issue_token()` and `verify_token()` behavior remains unchanged when `JWT_SECRET_KEY` is configured.
+
+### 5. Route behavior and test surface
+
+- **Do not add a new JSON 500 API response contract** in this PR.
+- Routes that need token issuing or token verification (`/auth/login`, `/auth/me`) may let `MissingJwtSecretError` propagate to Flask/default 500 handling.
+- Tests must assert the **Python exception type/message**, not search for text in a normal production HTTP 500 body.
+- Route-level tests must enable Flask exception propagation or directly call the relevant token path so `MissingJwtSecretError` can be asserted.
+
+### 6. Required tests
+
+- Test `issue_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing.
+- Test `issue_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is empty or whitespace-only.
+- Test `verify_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is missing.
+- Test `verify_token()` raises `MissingJwtSecretError` when `JWT_SECRET_KEY` is empty or whitespace-only.
+- Test the exception message contains:
+  `JWT_SECRET_KEY is required`
+- Test `KeyError` is **not** raised.
+- Test `POST /auth/login` with valid credentials and missing `JWT_SECRET_KEY` raises `MissingJwtSecretError` with exception propagation enabled.
+- Test `/auth/me` token verification path with missing `JWT_SECRET_KEY` raises `MissingJwtSecretError` with exception propagation enabled or by directly invoking `verify_token()`.
+- Test registration still works without `JWT_SECRET_KEY` because registration does not issue tokens.
+- Existing auth tests with `JWT_SECRET_KEY` configured continue passing.
+
+### 7. Preserved scope
+
+- `JWT_SECRET_KEY` remains required.
+- No hardcoded fallback secret.
+- No random secret generated at runtime.
+- No JWT algorithm changes.
+- No token expiry changes.
+- No auth cookie behavior changes.
+- No login credential validation changes.
+- No registration behavior changes.
+- No Broken Clock or Water Meter changes.
+- No styling/docs/infra/Terraform/Docker/GitHub Actions/App Runner/IAM changes.
+
+### Run commands
+
+- `python -m pytest -q`
+- `python -W error::ResourceWarning -m pytest -q`
+
+## 8. Follow-up steps
+
+- Add local setup documentation or `.env.example` in a separate documentation/config PR.
+- Add route protection in a later PR.
+- Add user ownership for feature records in a later PR.
+- Consider password policy hardening in a later PR.
