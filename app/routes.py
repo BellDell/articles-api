@@ -12,6 +12,9 @@ from werkzeug.security import check_password_hash
 
 from app.auth.jwt import issue_token, verify_token
 
+from app.auth import storage as auth_storage
+from app.auth.storage import DuplicateUserError
+
 from app.broken_clock.domain import (
     parse_hhmm,
     to_minutes,
@@ -491,19 +494,29 @@ def auth_login_post():
     else:
         data = request.form.to_dict()
 
-    username = data.get("username", "").strip()
+    username = data.get("username", "")
     password = data.get("password", "")
 
-    if not username or not password:
+    if not username.strip() or not password:
         return jsonify({"error": "Username and password are required"}), 400
 
-    expected_username = os.environ.get("AUTH_USERNAME", "")
-    expected_hash = os.environ.get("AUTH_PASSWORD_HASH", "")
+    username_canonical = username.strip().casefold()
 
-    if username != expected_username or not check_password_hash(expected_hash, password):
-        return jsonify({"error": "Invalid credentials"}), 401
+    # Check stored users first
+    db_path = auth_storage.get_db_path()
+    stored_user = auth_storage.get_user_by_username(db_path, username_canonical)
 
-    token = issue_token(username)
+    if stored_user is not None:
+        if not auth_storage.verify_user_password(db_path, username_canonical, password):
+            return jsonify({"error": "Invalid credentials"}), 401
+    else:
+        # Env fallback for backward compatibility
+        expected_username = os.environ.get("AUTH_USERNAME", "").strip().casefold()
+        expected_hash = os.environ.get("AUTH_PASSWORD_HASH", "")
+        if username_canonical != expected_username or not check_password_hash(expected_hash, password):
+            return jsonify({"error": "Invalid credentials"}), 401
+
+    token = issue_token(username_canonical)
     resp = make_response(jsonify({"message": "Login successful"}))
     resp.set_cookie(
         "access_token",
@@ -518,7 +531,15 @@ def auth_login_post():
 def auth_logout():
     """POST /auth/logout — clear the JWT cookie."""
     resp = make_response(jsonify({"message": "Logged out"}))
-    resp.set_cookie("access_token", "", expires=0)
+    resp.set_cookie(
+        "access_token",
+        "",
+        expires=0,
+        max_age=0,
+        httponly=True,
+        samesite="Lax",
+        secure=_parse_cookie_secure(),
+    )
     return resp
 
 
@@ -530,6 +551,47 @@ def auth_me():
         if username is not None:
             return jsonify({"authenticated": True, "username": username}), 200
     return jsonify({"authenticated": False}), 200
+
+
+def auth_register_get():
+    """GET /auth/register — render the registration form."""
+    return render_template("auth/register.html"), 200
+
+
+def _parse_register_data():
+    """Extract registration data from request (JSON or form)."""
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+    else:
+        data = request.form.to_dict()
+    return data
+
+
+def auth_register_post():
+    """POST /auth/register — create a new user."""
+    data = _parse_register_data()
+
+    username = data.get("username", "")
+    password = data.get("password", "")
+    confirm_password = data.get("confirm_password", "")
+
+    if not username.strip() or not password.strip() or not confirm_password.strip():
+        return jsonify({
+            "error": "Username, password, and confirm password are required"
+        }), 400
+
+    if password != confirm_password:
+        return jsonify({"error": "Passwords do not match"}), 400
+
+    username_canonical = username.strip().casefold()
+    db_path = auth_storage.get_db_path()
+
+    try:
+        auth_storage.create_user(db_path, username_canonical, password)
+    except DuplicateUserError:
+        return jsonify({"error": "Username already exists"}), 409
+
+    return jsonify({"message": "User registered"}), 201
 
 
 def register_routes(app):
@@ -596,4 +658,12 @@ def register_routes(app):
     app.add_url_rule(
         "/auth/me", endpoint="auth_me",
         view_func=auth_me, methods=["GET"],
+    )
+    app.add_url_rule(
+        "/auth/register", endpoint="auth_register_get",
+        view_func=auth_register_get, methods=["GET"],
+    )
+    app.add_url_rule(
+        "/auth/register", endpoint="auth_register_post",
+        view_func=auth_register_post, methods=["POST"],
     )
