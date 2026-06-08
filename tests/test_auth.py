@@ -461,41 +461,6 @@ class TestAuthRegisterPost:
         assert resp.status_code == 409
         assert resp.get_json() == {"error": "Username already exists"}
 
-
-# ---------------------------------------------------------------------------
-# MissingJwtSecretError route-level tests
-# ---------------------------------------------------------------------------
-
-class TestMissingJwtSecretRoute:
-    """Prove MissingJwtSecretError propagates through routes when secret is missing."""
-
-    def test_login_propagates_missing_secret(self, client, monkeypatch):
-        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
-        with pytest.raises(MissingJwtSecretError) as exc:
-            client.post("/auth/login", json={
-                "username": "admin", "password": "secret123",
-            })
-        assert "JWT_SECRET_KEY is required" in str(exc.value)
-        assert not isinstance(exc.value, KeyError)
-
-    def test_me_propagates_missing_secret(self, client, monkeypatch):
-        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
-        client.set_cookie("access_token", "some.dummy.token")
-        with pytest.raises(MissingJwtSecretError) as exc:
-            client.get("/auth/me")
-        assert "JWT_SECRET_KEY is required" in str(exc.value)
-        assert not isinstance(exc.value, KeyError)
-
-    def test_registration_works_without_secret(self, client, monkeypatch):
-        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
-        resp = client.post("/auth/register", json={
-            "username": "register_no_secret",
-            "password": "pass123",
-            "confirm_password": "pass123",
-        })
-        assert resp.status_code == 201
-        assert resp.get_json() == {"message": "User registered"}
-
     def test_case_insensitive_duplicate(self, client):
         client.post("/auth/register", json={
             "username": "CaseUser",
@@ -583,6 +548,41 @@ class TestMissingJwtSecretRoute:
     def test_empty_body_returns_400(self, client):
         resp = client.post("/auth/register", json={})
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# MissingJwtSecretError route-level tests
+# ---------------------------------------------------------------------------
+
+class TestMissingJwtSecretRoute:
+    """Prove MissingJwtSecretError propagates through routes when secret is missing."""
+
+    def test_login_propagates_missing_secret(self, client, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        with pytest.raises(MissingJwtSecretError) as exc:
+            client.post("/auth/login", json={
+                "username": "admin", "password": "secret123",
+            })
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+        assert not isinstance(exc.value, KeyError)
+
+    def test_me_propagates_missing_secret(self, client, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        client.set_cookie("access_token", "some.dummy.token")
+        with pytest.raises(MissingJwtSecretError) as exc:
+            client.get("/auth/me")
+        assert "JWT_SECRET_KEY is required" in str(exc.value)
+        assert not isinstance(exc.value, KeyError)
+
+    def test_registration_works_without_secret(self, client, monkeypatch):
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        resp = client.post("/auth/register", json={
+            "username": "register_no_secret",
+            "password": "pass123",
+            "confirm_password": "pass123",
+        })
+        assert resp.status_code == 201
+        assert resp.get_json() == {"message": "User registered"}
 
 
 # ---------------------------------------------------------------------------
