@@ -218,6 +218,56 @@ class TestCreateUserNonDuplicateError:
         # Must not be DuplicateUserError
         assert not isinstance(exc.value, DuplicateUserError)
 
+
+# ---------------------------------------------------------------------------
+# Facade-level DynamoDB tests
+# ---------------------------------------------------------------------------
+
+class TestAuthStorageFacadeDynamoDB:
+    """Prove auth_storage facade works correctly with STORAGE_BACKEND=dynamodb."""
+
+    def test_create_user_returns_created_at(self, _fake_table):
+        import app.auth.storage as auth_storage
+        result = auth_storage.create_user("facade_user", "secret")
+        assert result is not None
+        assert "T" in result  # ISO8601 timestamp
+
+    def test_get_user_after_create(self, _fake_table):
+        import app.auth.storage as auth_storage
+        auth_storage.create_user("findme", "secret")
+        user = auth_storage.get_user_by_username("findme")
+        assert user is not None
+        assert user["username_canonical"] == "findme"
+        assert "password_hash" in user
+
+    def test_verify_password(self, _fake_table):
+        import app.auth.storage as auth_storage
+        auth_storage.create_user("verify_me", "mypassword")
+        assert auth_storage.verify_user_password("verify_me", "mypassword") is True
+        assert auth_storage.verify_user_password("verify_me", "wrongpass") is False
+
+    def test_duplicate_raises_duplicate_user_error(self, _fake_table):
+        import app.auth.storage as auth_storage
+        auth_storage.create_user("dup_facade", "first")
+        with pytest.raises(DuplicateUserError):
+            auth_storage.create_user("dup_facade", "second")
+
+    def test_get_db_path_raises_for_dynamodb(self):
+        import app.auth.storage as auth_storage
+        with pytest.raises(RuntimeError) as exc:
+            auth_storage.get_db_path()
+        assert "not available" in str(exc.value)
+
+    def test_no_import_error_for_get_db_path(self):
+        """Prove get_db_path does not cause ImportError with dynamodb."""
+        import app.auth.storage as auth_storage
+        try:
+            auth_storage.get_db_path()
+        except RuntimeError:
+            pass  # Expected: RuntimeError, not ImportError
+        except ImportError:
+            pytest.fail("ImportError was raised instead of RuntimeError")
+
     def test_other_client_error_preserves_original(self, _fake_table):
         _fake_table.put_item_exception = make_client_error("ProvisionedThroughputExceededException")
         with pytest.raises(Exception) as exc:

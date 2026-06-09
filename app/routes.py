@@ -503,11 +503,10 @@ def auth_login_post():
     username_canonical = username.strip().casefold()
 
     # Check stored users first
-    db_path = auth_storage.get_db_path()
-    stored_user = auth_storage.get_user_by_username(db_path, username_canonical)
+    stored_user = auth_storage.get_user_by_username(username_canonical)
 
     if stored_user is not None:
-        if not auth_storage.verify_user_password(db_path, username_canonical, password):
+        if not auth_storage.verify_user_password(username_canonical, password):
             return jsonify({"error": "Invalid credentials"}), 401
     else:
         # Env fallback for backward compatibility
@@ -584,10 +583,9 @@ def auth_register_post():
         return jsonify({"error": "Passwords do not match"}), 400
 
     username_canonical = username.strip().casefold()
-    db_path = auth_storage.get_db_path()
 
     try:
-        auth_storage.create_user(db_path, username_canonical, password)
+        auth_storage.create_user(username_canonical, password)
     except DuplicateUserError:
         return jsonify({"error": "Username already exists"}), 409
 
