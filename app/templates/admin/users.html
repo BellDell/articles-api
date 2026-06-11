@@ -1,0 +1,28 @@
+{% extends "broken_clock/_layout.html" %}
+{% block title %}Admin - Users{% endblock %}
+{% block content %}
+<div class="bc-card" style="max-width: 700px;">
+  <h1>Registered Users</h1>
+  <div class="accent-rule"></div>
+  {% if users %}
+  <table class="table is-fullwidth">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Registered</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>{{ user.username_canonical }}</td>
+        <td>{{ user.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No users registered yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

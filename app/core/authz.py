@@ -42,6 +42,8 @@ PROTECTED_ENDPOINT_MODES = {
     "water_meter_history": "html",
     "delete_water_meter_reading": "json",
     "delete_water_meter_reading_html": "json",
+    # Admin
+    "admin_users": "html",
 }
 
 

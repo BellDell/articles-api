@@ -83,3 +83,19 @@ def get_db_path():
         )
     from app.auth.storage_sqlite import get_db_path as _fn
     return _fn()
+
+
+def list_users():
+    """Return a list of user dicts with username_canonical and created_at.
+
+    Does NOT return password_hash. Backend-neutral — delegates to
+    SQLite or DynamoDB based on STORAGE_BACKEND.
+    """
+    backend = _get_backend()
+    if backend == "dynamodb":
+        from app.auth.storage_dynamodb import list_users as _fn
+        return _fn(None)
+    else:
+        from app.auth.storage_sqlite import list_users as _fn
+        from app.auth.storage_sqlite import get_db_path as _db
+        return _fn(_db())
