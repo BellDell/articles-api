@@ -474,6 +474,12 @@ def delete_water_meter_reading_html(record_id):
     return redirect("/water-meter/history")
 
 
+def _wants_html():
+    """Return True if the client prefers HTML over JSON."""
+    best = request.accept_mimetypes.best_match([TEXT_HTML, APPLICATION_JSON])
+    return best == TEXT_HTML
+
+
 def _parse_cookie_secure():
     """Return True if the auth cookie should have the Secure flag."""
     val = os.environ.get("AUTH_COOKIE_SECURE", "").strip().lower()
@@ -484,7 +490,8 @@ def _parse_cookie_secure():
 
 def auth_login_get():
     """GET /auth/login — render the login page."""
-    return render_template("auth/login.html"), 200
+    registered = request.args.get("registered", "")
+    return render_template("auth/login.html", registered=bool(registered)), 200
 
 
 def auth_login_post():
@@ -498,6 +505,8 @@ def auth_login_post():
     password = data.get("password", "")
 
     if not username.strip() or not password:
+        if _wants_html():
+            return render_template("auth/login.html", error="Username and password are required"), 400
         return jsonify({"error": "Username and password are required"}), 400
 
     username_canonical = username.strip().casefold()
@@ -507,16 +516,25 @@ def auth_login_post():
 
     if stored_user is not None:
         if not auth_storage.verify_user_password(username_canonical, password):
+            if _wants_html():
+                return render_template("auth/login.html", error="Invalid credentials"), 401
             return jsonify({"error": "Invalid credentials"}), 401
     else:
         # Env fallback for backward compatibility
         expected_username = os.environ.get("AUTH_USERNAME", "").strip().casefold()
         expected_hash = os.environ.get("AUTH_PASSWORD_HASH", "")
         if username_canonical != expected_username or not check_password_hash(expected_hash, password):
+            if _wants_html():
+                return render_template("auth/login.html", error="Invalid credentials"), 401
             return jsonify({"error": "Invalid credentials"}), 401
 
     token = issue_token(username_canonical)
-    resp = make_response(jsonify({"message": "Login successful"}))
+
+    if _wants_html():
+        resp = make_response(redirect("/"))
+    else:
+        resp = make_response(jsonify({"message": "Login successful"}))
+
     resp.set_cookie(
         "access_token",
         token,
@@ -529,7 +547,10 @@ def auth_login_post():
 
 def auth_logout():
     """POST /auth/logout — clear the JWT cookie."""
-    resp = make_response(jsonify({"message": "Logged out"}))
+    if _wants_html():
+        resp = make_response(redirect("/auth/login"))
+    else:
+        resp = make_response(jsonify({"message": "Logged out"}))
     resp.set_cookie(
         "access_token",
         "",
@@ -575,11 +596,15 @@ def auth_register_post():
     confirm_password = data.get("confirm_password", "")
 
     if not username.strip() or not password.strip() or not confirm_password.strip():
+        if _wants_html():
+            return render_template("auth/register.html", error="Username, password, and confirm password are required"), 400
         return jsonify({
             "error": "Username, password, and confirm password are required"
         }), 400
 
     if password != confirm_password:
+        if _wants_html():
+            return render_template("auth/register.html", error="Passwords do not match"), 400
         return jsonify({"error": "Passwords do not match"}), 400
 
     username_canonical = username.strip().casefold()
@@ -587,8 +612,12 @@ def auth_register_post():
     try:
         auth_storage.create_user(username_canonical, password)
     except DuplicateUserError:
+        if _wants_html():
+            return render_template("auth/register.html", error="Username already exists", username=username), 409
         return jsonify({"error": "Username already exists"}), 409
 
+    if _wants_html():
+        return redirect("/auth/login?registered=1")
     return jsonify({"message": "User registered"}), 201
 
 
