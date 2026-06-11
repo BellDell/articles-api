@@ -22,11 +22,26 @@ def client(monkeypatch, tmp_path):
         yield client
 
 
+@pytest.fixture
+def authed_client(client):
+    """Client with registered and logged-in user."""
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+    return client
+
+
 # ── Test 1: Empty JSON request body (line 84) ──
 
-def test_empty_json_body_returns_400(client):
+def test_empty_json_body_returns_400(authed_client):
     """POST /broken-clock/calculate with empty/None body returns 400."""
-    response = client.post(
+    response = authed_client.post(
         "/broken-clock/calculate",
         data="",
         content_type="application/json",
@@ -39,13 +54,13 @@ def test_empty_json_body_returns_400(client):
 
 # ── Test 2: Missing real_observed_time defaults to current HH:MM (line 97) ──
 
-def test_missing_real_observed_time_defaults(client):
+def test_missing_real_observed_time_defaults(authed_client):
     """POST with only wrong_observed_time defaults real_observed_time to system time."""
     payload = {
         "wrong_observed_time": "11:00",
         "target_wrong_times": ["07:00"],
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 200
     data = response.get_json()
     assert "real_observed_time" in data
@@ -56,14 +71,14 @@ def test_missing_real_observed_time_defaults(client):
 
 # ── Test 3: String target_wrong_times split (line 101) ──
 
-def test_form_string_target_wrong_times_split(client):
+def test_form_string_target_wrong_times_split(authed_client):
     """Form POST with comma-separated target_wrong_times works."""
     form_data = {
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
         "target_wrong_times": "07:00,09:00",
     }
-    response = client.post("/broken-clock/calculate", data=form_data)
+    response = authed_client.post("/broken-clock/calculate", data=form_data)
     assert response.status_code == 200
     assert "text/html" in response.content_type
     text = response.get_data(as_text=True)
@@ -73,14 +88,14 @@ def test_form_string_target_wrong_times_split(client):
 
 # ── Test 4: Non-string/non-list target_wrong_times fallback (line 105) ──
 
-def test_dict_target_wrong_times_falls_back_to_defaults(client):
+def test_dict_target_wrong_times_falls_back_to_defaults(authed_client):
     """JSON POST with target_wrong_times as a dict falls back to default refs."""
     payload = {
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
         "target_wrong_times": {"bad": "data"},
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 200
     data = response.get_json()
     refs = {r["wrong_time"]: r for r in data["reference_points"]}
@@ -91,14 +106,14 @@ def test_dict_target_wrong_times_falls_back_to_defaults(client):
 
 # ── Test 5: Invalid target time (line 110) ──
 
-def test_invalid_target_time_returns_400(client):
+def test_invalid_target_time_returns_400(authed_client):
     """POST with invalid target time returns 400 and error message."""
     payload = {
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
         "target_wrong_times": ["99:99"],
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 400
     data = response.get_json()
     assert "error" in data

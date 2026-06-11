@@ -40,7 +40,8 @@ def ensure_db_initialized(db_path):
 
 def save_calculation(db_path, real_observed_time, wrong_observed_time,
                      offset_minutes, offset_human, clock_status,
-                     target_wrong_times, reference_points):
+                     target_wrong_times, reference_points,
+                     owner_username=None):
     backend = _get_backend()
     if backend == "dynamodb":
         from app.broken_clock.storage_dynamodb import save_calculation as _fn
@@ -48,22 +49,23 @@ def save_calculation(db_path, real_observed_time, wrong_observed_time,
         from app.broken_clock.storage_sqlite import save_calculation as _fn
     return _fn(db_path, real_observed_time, wrong_observed_time,
                offset_minutes, offset_human, clock_status,
-               target_wrong_times, reference_points)
+               target_wrong_times, reference_points,
+               owner_username=owner_username)
 
 
-def get_history(db_path):
+def get_history(db_path, owner_username=None):
     backend = _get_backend()
     if backend == "dynamodb":
         from app.broken_clock.storage_dynamodb import get_history as _fn
     else:
         from app.broken_clock.storage_sqlite import get_history as _fn
-    return _fn(db_path)
+    return _fn(db_path, owner_username=owner_username)
 
 
-def delete_history_record(record_id, db_path=None):
+def delete_history_record(record_id, db_path=None, owner_username=None):
     backend = _get_backend()
     if backend == "dynamodb":
         from app.broken_clock.storage_dynamodb import delete_history_record as _fn
     else:
         from app.broken_clock.storage_sqlite import delete_history_record as _fn
-    return _fn(record_id, db_path)
+    return _fn(record_id, db_path, owner_username=owner_username)

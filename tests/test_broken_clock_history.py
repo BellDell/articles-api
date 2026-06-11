@@ -16,49 +16,76 @@ def client(monkeypatch, tmp_path):
         yield client
 
 
-def test_successful_calculation_creates_history_record(client):
+@pytest.fixture
+def authed_client(client):
+    """Client with registered and logged-in user."""
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+    return client
+
+
+def _login(client):
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+
+
+def test_successful_calculation_creates_history_record(authed_client):
     """A successful JSON calculation creates exactly one history row."""
     payload = {
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 200
 
-    history = client.get("/broken-clock/history", headers={"Accept": "application/json"})
+    history = authed_client.get("/broken-clock/history", headers={"Accept": "application/json"})
     assert history.status_code == 200
     data = history.get_json()
     assert len(data) == 1
     assert data[0]["offset_minutes"] == 60
 
 
-def test_invalid_calculation_does_not_create_record(client):
+def test_invalid_calculation_does_not_create_record(authed_client):
     """A validation error (400) must not create a history row."""
     payload = {
         "real_observed_time": "10:00",
         # missing wrong_observed_time
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 400
 
-    history = client.get("/broken-clock/history", headers={"Accept": "application/json"})
+    history = authed_client.get("/broken-clock/history", headers={"Accept": "application/json"})
     assert history.status_code == 200
     data = history.get_json()
     assert len(data) == 0
 
 
-def test_history_newest_first(client):
+def test_history_newest_first(authed_client):
     """Multiple calculations are returned newest first."""
-    client.post("/broken-clock/calculate", json={
+    authed_client.post("/broken-clock/calculate", json={
         "wrong_observed_time": "10:00",
         "real_observed_time": "09:00",
     })
-    client.post("/broken-clock/calculate", json={
+    authed_client.post("/broken-clock/calculate", json={
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
     })
 
-    history = client.get("/broken-clock/history", headers={"Accept": "application/json"})
+    history = authed_client.get("/broken-clock/history", headers={"Accept": "application/json"})
     data = history.get_json()
     assert len(data) == 2
     # Second request (offset 60) should be first (newest)
@@ -66,17 +93,17 @@ def test_history_newest_first(client):
     assert data[1]["offset_minutes"] == 60
 
 
-def test_history_decodes_json_fields(client):
+def test_history_decodes_json_fields(authed_client):
     """History response decodes target_wrong_times and reference_points as arrays."""
     payload = {
         "wrong_observed_time": "13:00",
         "real_observed_time": "12:00",
         "target_wrong_times": ["12:00"],
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 200
 
-    history = client.get("/broken-clock/history", headers={"Accept": "application/json"})
+    history = authed_client.get("/broken-clock/history", headers={"Accept": "application/json"})
     data = history.get_json()
     assert len(data) == 1
     record = data[0]
@@ -89,30 +116,30 @@ def test_history_decodes_json_fields(client):
 
 # HTML browser tests
 
-def test_history_html_returns_html(client):
+def test_history_html_returns_html(authed_client):
     """GET /broken-clock/history with Accept text/html returns 200 and text/html."""
-    response = client.get("/broken-clock/history", headers={"Accept": "text/html"})
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "text/html"})
     assert response.status_code == 200
     assert "text/html" in response.content_type
 
 
-def test_history_html_empty_shows_no_calculations(client):
+def test_history_html_empty_shows_no_calculations(authed_client):
     """Empty history HTML page contains 'No calculations yet'."""
-    response = client.get("/broken-clock/history", headers={"Accept": "text/html"})
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "text/html"})
     assert response.status_code == 200
     assert "No calculations yet" in response.get_data(as_text=True)
 
 
-def test_history_html_with_record_shows_reference_points(client):
+def test_history_html_with_record_shows_reference_points(authed_client):
     """History HTML page with one saved calculation shows compact reference point."""
     payload = {
         "wrong_observed_time": "07:00",
         "real_observed_time": "06:00",
         "target_wrong_times": ["07:00"],
     }
-    client.post("/broken-clock/calculate", json=payload)
+    authed_client.post("/broken-clock/calculate", json=payload)
 
-    response = client.get("/broken-clock/history", headers={"Accept": "text/html"})
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "text/html"})
     assert response.status_code == 200
     text = response.get_data(as_text=True)
     assert "Calculation History" in text

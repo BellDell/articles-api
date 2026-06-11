@@ -271,6 +271,19 @@
       <a class="navbar-item {% if active_page == 'water_meter' %}is-active{% endif %}"
          href="/water-meter">Water Meter</a>
     </div>
+
+    <div class="navbar-end">
+      {% if username %}
+      <span class="navbar-item" style="color: var(--bc-text-secondary); font-size: 13px;">
+        Logged in as <strong style="margin-left: 4px;">{{ username }}</strong>
+      </span>
+      <form action="/auth/logout" method="post" style="display: inline;">
+        <button type="submit" class="navbar-item"
+                style="background: none; border: none; cursor: pointer; font-size: 13px;
+                       color: var(--bc-text-secondary);">Logout</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
 </nav>
 

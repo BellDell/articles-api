@@ -38,23 +38,25 @@ def ensure_db_initialized(db_path):
 
 
 def save_reading(db_path, reading_value, reading_date,
-                 meter_name="main", unit="m3", notes=""):
+                 meter_name="main", unit="m3", notes="",
+                 owner_username=None):
     backend = _get_backend()
     if backend == "dynamodb":
         from app.water_meter.storage_dynamodb import save_reading as _fn
     else:
         from app.water_meter.storage_sqlite import save_reading as _fn
     return _fn(db_path, reading_value, reading_date,
-               meter_name=meter_name, unit=unit, notes=notes)
+               meter_name=meter_name, unit=unit, notes=notes,
+               owner_username=owner_username)
 
 
-def get_readings(db_path):
+def get_readings(db_path, owner_username=None):
     backend = _get_backend()
     if backend == "dynamodb":
         from app.water_meter.storage_dynamodb import get_readings as _fn
     else:
         from app.water_meter.storage_sqlite import get_readings as _fn
-    return _fn(db_path)
+    return _fn(db_path, owner_username=owner_username)
 
 
 def get_meter_names(db_path):
@@ -66,10 +68,10 @@ def get_meter_names(db_path):
     return _fn(db_path)
 
 
-def delete_reading(record_id, db_path):
+def delete_reading(record_id, db_path, owner_username=None):
     backend = _get_backend()
     if backend == "dynamodb":
         from app.water_meter.storage_dynamodb import delete_reading as _fn
     else:
         from app.water_meter.storage_sqlite import delete_reading as _fn
-    return _fn(record_id, db_path)
+    return _fn(record_id, db_path, owner_username=owner_username)

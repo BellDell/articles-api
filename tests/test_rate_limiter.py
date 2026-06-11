@@ -248,14 +248,29 @@ def client(monkeypatch, tmp_path):
         yield client
 
 
-def test_broken_clock_sixth_write_returns_429(client):
+@pytest.fixture
+def authed_client(client):
+    """Client with registered and logged-in user."""
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+    return client
+
+
+def test_broken_clock_sixth_write_returns_429(authed_client):
     for _ in range(5):
-        resp = client.post("/broken-clock/calculate", json={
+        resp = authed_client.post("/broken-clock/calculate", json={
             "wrong_observed_time": "11:00",
             "real_observed_time": "10:00",
         })
         assert resp.status_code == 200
-    resp = client.post("/broken-clock/calculate", json={
+    resp = authed_client.post("/broken-clock/calculate", json={
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
     })
@@ -265,45 +280,45 @@ def test_broken_clock_sixth_write_returns_429(client):
     assert int(resp.headers["Retry-After"]) >= 0
 
 
-def test_broken_clock_invalid_does_not_consume_quota(client):
+def test_broken_clock_invalid_does_not_consume_quota(authed_client):
     for _ in range(5):
-        client.post("/broken-clock/calculate", json={
+        authed_client.post("/broken-clock/calculate", json={
             "wrong_observed_time": "11:00",
             "real_observed_time": "10:00",
         })
-    resp = client.post("/broken-clock/calculate", json={
+    resp = authed_client.post("/broken-clock/calculate", json={
         "wrong_observed_time": "",
         "real_observed_time": "10:00",
     })
     assert resp.status_code == 400
-    resp = client.post("/broken-clock/calculate", json={
+    resp = authed_client.post("/broken-clock/calculate", json={
         "wrong_observed_time": "12:00",
         "real_observed_time": "11:00",
     })
     assert resp.status_code == 429
 
 
-def test_broken_clock_and_water_meter_separate_quotas(client):
+def test_broken_clock_and_water_meter_separate_quotas(authed_client):
     for _ in range(5):
-        client.post("/broken-clock/calculate", json={
+        authed_client.post("/broken-clock/calculate", json={
             "wrong_observed_time": "11:00",
             "real_observed_time": "10:00",
         })
-    resp = client.post("/water-meter/readings", json={
+    resp = authed_client.post("/water-meter/readings", json={
         "reading_value": 100,
         "reading_date": "2026-06-01",
     })
     assert resp.status_code == 201
 
 
-def test_water_meter_sixth_write_returns_429(client):
+def test_water_meter_sixth_write_returns_429(authed_client):
     for _ in range(5):
-        resp = client.post("/water-meter/readings", json={
+        resp = authed_client.post("/water-meter/readings", json={
             "reading_value": 100,
             "reading_date": "2026-06-01",
         })
         assert resp.status_code == 201
-    resp = client.post("/water-meter/readings", json={
+    resp = authed_client.post("/water-meter/readings", json={
         "reading_value": 100,
         "reading_date": "2026-06-01",
     })
@@ -313,18 +328,18 @@ def test_water_meter_sixth_write_returns_429(client):
     assert int(resp.headers["Retry-After"]) >= 0
 
 
-def test_water_meter_invalid_does_not_consume_quota(client):
+def test_water_meter_invalid_does_not_consume_quota(authed_client):
     for _ in range(5):
-        client.post("/water-meter/readings", json={
+        authed_client.post("/water-meter/readings", json={
             "reading_value": 100,
             "reading_date": "2026-06-01",
         })
-    resp = client.post("/water-meter/readings", json={
+    resp = authed_client.post("/water-meter/readings", json={
         "reading_value": -5,
         "reading_date": "2026-06-01",
     })
     assert resp.status_code == 400
-    resp = client.post("/water-meter/readings", json={
+    resp = authed_client.post("/water-meter/readings", json={
         "reading_value": 200,
         "reading_date": "2026-06-01",
     })

@@ -12,8 +12,24 @@ from app.app import app
 def client(tmp_path):
     app.config["TESTING"] = True
     os.environ["APP_DB_PATH"] = str(tmp_path / "test_articles.db")
+    os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-jwt-testing-1234567890"
     with app.test_client() as client:
         yield client
+
+
+@pytest.fixture
+def authed_client(client):
+    """Client with registered and logged-in user."""
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+    return client
 
 
 def test_get_authors_returns_authors(client):
@@ -81,21 +97,21 @@ def test_get_author_by_unknown_id_returns_404(client):
     assert "error" in data
 
 
-def test_broken_clock_form_returns_200(client):
+def test_broken_clock_form_returns_200(authed_client):
     """GET /broken-clock returns 200 with HTML form."""
-    response = client.get("/broken-clock")
+    response = authed_client.get("/broken-clock")
     assert response.status_code == 200
     assert "Broken Clock Calculator" in response.text
 
 
-def test_broken_clock_fast_clock_default_refs(client):
+def test_broken_clock_fast_clock_default_refs(authed_client):
     """Fast clock with default reference points."""
     payload = {
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
         # no target_wrong_times provided
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 200
     data = response.get_json()
     assert data["offset_minutes"] == 60
@@ -110,14 +126,14 @@ def test_broken_clock_fast_clock_default_refs(client):
     assert refs["09:00"]["day_shift"] == 0
 
 
-def test_broken_clock_slow_clock_scenario(client):
+def test_broken_clock_slow_clock_scenario(authed_client):
     """Slow clock mapping checks."""
     payload = {
         "wrong_observed_time": "09:15",
         "real_observed_time": "10:00",
         "target_wrong_times": ["07:00", "09:00"]
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 200
     data = response.get_json()
     assert data["offset_minutes"] == -45
@@ -126,62 +142,62 @@ def test_broken_clock_slow_clock_scenario(client):
     assert refs["09:00"]["real_time"] == "09:45"
 
 
-def test_broken_clock_missing_wrong_observed_time_400(client):
+def test_broken_clock_missing_wrong_observed_time_400(authed_client):
     """POST /broken-clock/calculate with missing wrong_observed_time returns 400."""
     payload = {
         "real_observed_time": "12:00",
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 400
     data = response.get_json()
     assert "error" in data
 
 
-def test_broken_clock_invalid_time_format_400(client):
+def test_broken_clock_invalid_time_format_400(authed_client):
     """POST /broken-clock/calculate with invalid HH:MM returns 400."""
     payload = {
         "wrong_observed_time": "25:00",
         "real_observed_time": "12:00",
         "target_wrong_times": ["15:00"]
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 400
     data = response.get_json()
     assert "error" in data
 
 
-def test_broken_clock_form_invalid_time_returns_html(client):
+def test_broken_clock_form_invalid_time_returns_html(authed_client):
     """Form POST with invalid time returns 400 with text/html content type."""
     form_data = {
         "wrong_observed_time": "25:00",
         "real_observed_time": "12:00",
     }
-    response = client.post("/broken-clock/calculate", data=form_data)
+    response = authed_client.post("/broken-clock/calculate", data=form_data)
     assert response.status_code == 400
     assert response.content_type == "text/html" or "text/html" in response.content_type
     assert "Error" in response.get_data(as_text=True)
 
 
-def test_broken_clock_form_invalid_time_has_back_link(client):
+def test_broken_clock_form_invalid_time_has_back_link(authed_client):
     """Form POST with invalid time includes a link back to /broken-clock."""
     form_data = {
         "wrong_observed_time": "25:00",
         "real_observed_time": "12:00",
     }
-    response = client.post("/broken-clock/calculate", data=form_data)
+    response = authed_client.post("/broken-clock/calculate", data=form_data)
     assert response.status_code == 400
     text = response.get_data(as_text=True)
     assert "/broken-clock" in text
 
 
-def test_broken_clock_custom_target_wrong_times(client):
+def test_broken_clock_custom_target_wrong_times(authed_client):
     """POST /broken-clock/calculate with custom target_wrong_times list e.g. ['12:00']."""
     payload = {
         "wrong_observed_time": "13:00",
         "real_observed_time": "12:00",
         "target_wrong_times": ["12:00"]
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 200
     data = response.get_json()
     assert data["offset_minutes"] == 60

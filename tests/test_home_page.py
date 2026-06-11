@@ -37,7 +37,22 @@ def test_home_page_contains_history_link(client):
     assert "/broken-clock/history" in text
 
 
-def test_existing_pages_still_work(client):
-    response = client.get("/broken-clock")
+def test_existing_pages_still_work(authed_client):
+    response = authed_client.get("/broken-clock")
     assert response.status_code == 200
     assert "text/html" in response.content_type
+
+
+@pytest.fixture
+def authed_client(client):
+    """Client with registered and logged-in user."""
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+    return client

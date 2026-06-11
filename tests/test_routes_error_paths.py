@@ -23,6 +23,21 @@ def client(tmp_path):
         yield client
 
 
+@pytest.fixture
+def authed_client(client):
+    """Client with registered and logged-in user."""
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+    return client
+
+
 # ── POST /articles error paths ──
 
 def test_create_article_non_integer_author_id_returns_400(client):
@@ -40,7 +55,7 @@ def test_create_article_non_integer_author_id_returns_400(client):
 
 # ── Broken Clock calculate DB error paths ──
 
-def test_calculate_db_error_returns_json_500(monkeypatch, client):
+def test_calculate_db_error_returns_json_500(monkeypatch, authed_client):
     def _raise(*args, **kwargs):
         raise RuntimeError("Disk full")
 
@@ -50,13 +65,13 @@ def test_calculate_db_error_returns_json_500(monkeypatch, client):
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
     }
-    response = client.post("/broken-clock/calculate", json=payload)
+    response = authed_client.post("/broken-clock/calculate", json=payload)
     assert response.status_code == 500
     data = response.get_json()
     assert "error" in data
 
 
-def test_calculate_db_error_returns_html_500(monkeypatch, client):
+def test_calculate_db_error_returns_html_500(monkeypatch, authed_client):
     def _raise(*args, **kwargs):
         raise RuntimeError("Disk full")
 
@@ -66,7 +81,7 @@ def test_calculate_db_error_returns_html_500(monkeypatch, client):
         "wrong_observed_time": "11:00",
         "real_observed_time": "10:00",
     }
-    response = client.post("/broken-clock/calculate", data=form_data)
+    response = authed_client.post("/broken-clock/calculate", data=form_data)
     assert response.status_code == 500
     assert "text/html" in response.content_type
     text = response.get_data(as_text=True)
@@ -77,38 +92,38 @@ def test_calculate_db_error_returns_html_500(monkeypatch, client):
 
 # ── Broken Clock history DB error paths ──
 
-def test_history_db_error_returns_json_500(monkeypatch, client):
+def test_history_db_error_returns_json_500(monkeypatch, authed_client):
     def _raise(*args, **kwargs):
         raise RuntimeError("DB failure")
 
     monkeypatch.setattr(app.routes, "get_history", _raise)
 
-    response = client.get("/broken-clock/history", headers={"Accept": "application/json"})
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "application/json"})
     assert response.status_code == 500
     data = response.get_json()
     assert "error" in data
 
 
-def test_history_db_error_returns_html_500(monkeypatch, client):
+def test_history_db_error_returns_html_500(monkeypatch, authed_client):
     def _raise(*args, **kwargs):
         raise RuntimeError("DB failure")
 
     monkeypatch.setattr(app.routes, "get_history", _raise)
 
-    response = client.get("/broken-clock/history", headers={"Accept": "text/html"})
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "text/html"})
     assert response.status_code == 500
     assert "text/html" in response.content_type
     text = response.get_data(as_text=True)
     assert "Error" in text
 
 
-def test_water_meter_save_error_returns_html_with_water_meter_back_link(monkeypatch, client):
+def test_water_meter_save_error_returns_html_with_water_meter_back_link(monkeypatch, authed_client):
     def _raise(*args, **kwargs):
         raise RuntimeError("DB failure")
 
     monkeypatch.setattr(app.routes.wm_storage, "save_reading", _raise)
 
-    response = client.post("/water-meter/readings", data={
+    response = authed_client.post("/water-meter/readings", data={
         "reading_value": "123.45",
         "reading_date": "2026-06-01",
     })
@@ -121,13 +136,13 @@ def test_water_meter_save_error_returns_html_with_water_meter_back_link(monkeypa
     assert "Calculate again" not in text
 
 
-def test_water_meter_history_error_returns_html_with_water_meter_back_link(monkeypatch, client):
+def test_water_meter_history_error_returns_html_with_water_meter_back_link(monkeypatch, authed_client):
     def _raise(*args, **kwargs):
         raise RuntimeError("DB failure")
 
     monkeypatch.setattr(app.routes.wm_storage, "get_readings", _raise)
 
-    response = client.get("/water-meter/history", headers={"Accept": "text/html"})
+    response = authed_client.get("/water-meter/history", headers={"Accept": "text/html"})
 
     assert response.status_code == 500
     assert "text/html" in response.content_type
