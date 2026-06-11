@@ -36,6 +36,22 @@ def authed_client(client):
     return client
 
 
+@pytest.fixture
+def authed_admin_client(client, monkeypatch):
+    """Client with registered admin user and AUTH_ADMIN_USERS set."""
+    monkeypatch.setenv("AUTH_ADMIN_USERS", "admin_user")
+    client.post("/auth/register", json={
+        "username": "admin_user",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "admin_user",
+        "password": "secret123",
+    })
+    return client
+
+
 # ---------------------------------------------------------------------------
 # Route authorization map tests
 # ---------------------------------------------------------------------------
@@ -272,6 +288,77 @@ class TestAuthenticatedAccess:
     def test_authed_water_meter_history(self, authed_client):
         response = authed_client.get("/water-meter/history", headers={"Accept": "text/html"})
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Admin users page
+# ---------------------------------------------------------------------------
+
+class TestAdminUsersPage:
+    """Admin user listing page access and data checks."""
+
+    def test_anonymous_redirects_to_login(self, client):
+        response = client.get("/admin/users")
+        assert response.status_code == 302
+        assert response.headers["Location"] == "/auth/login"
+
+    def test_non_admin_returns_403(self, authed_client):
+        response = authed_client.get("/admin/users")
+        assert response.status_code == 403
+        assert response.get_json() == {"error": "Admin access required"}
+
+    def test_admin_returns_200(self, authed_admin_client):
+        response = authed_admin_client.get("/admin/users")
+        assert response.status_code == 200
+        assert "text/html" in response.content_type
+
+    def test_admin_page_lists_usernames(self, authed_admin_client):
+        response = authed_admin_client.get("/admin/users")
+        text = response.get_data(as_text=True)
+        assert "admin_user" in text
+
+    def test_admin_page_shows_created_at(self, authed_admin_client):
+        response = authed_admin_client.get("/admin/users")
+        text = response.get_data(as_text=True)
+        # The page should show a timestamp format
+        assert "T" in text or "-" in text or ":" in text
+
+    def test_admin_page_no_password_hash(self, authed_admin_client):
+        response = authed_admin_client.get("/admin/users")
+        text = response.get_data(as_text=True)
+        assert "password_hash" not in text
+        assert "pbkdf2" not in text
+
+    def test_admin_page_with_multiple_users(self, authed_admin_client, client):
+        # Register a second user via the non-admin client
+        client.post("/auth/register", json={
+            "username": "second_user",
+            "password": "secret123",
+            "confirm_password": "secret123",
+        })
+        # Admin sees both users
+        response = authed_admin_client.get("/admin/users")
+        text = response.get_data(as_text=True)
+        assert "admin_user" in text
+        assert "second_user" in text
+
+
+# ---------------------------------------------------------------------------
+# Admin username in nav
+# ---------------------------------------------------------------------------
+
+class TestAdminNavLink:
+    """Admin nav link appears only for admin users."""
+
+    def test_admin_sees_admin_link(self, authed_admin_client):
+        response = authed_admin_client.get("/")
+        text = response.get_data(as_text=True)
+        assert "/admin/users" in text
+
+    def test_non_admin_does_not_see_admin_link(self, authed_client):
+        response = authed_client.get("/")
+        text = response.get_data(as_text=True)
+        assert "/admin/users" not in text
 
 
 # ---------------------------------------------------------------------------

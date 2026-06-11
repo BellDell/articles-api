@@ -33,6 +33,7 @@ from app.core.rate_limit.limiter import make_429_response
 from app.core.authz import (
     login_required,
     get_current_username,
+    is_admin,
 )
 
 BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
@@ -646,6 +647,15 @@ def auth_register_post():
     return jsonify({"message": "User registered"}), 201
 
 
+def admin_users():
+    """GET /admin/users — admin-only user listing page."""
+    current = g.get("current_username")
+    if not current or not is_admin(current):
+        return jsonify({"error": "Admin access required"}), 403
+    users = auth_storage.list_users()
+    return render_template("admin/users.html", users=users), 200
+
+
 def register_routes(app):
     app.add_url_rule("/", endpoint="home", view_func=home)
     app.add_url_rule("/authors", endpoint="get_authors", view_func=get_authors)
@@ -720,6 +730,12 @@ def register_routes(app):
         view_func=auth_register_post, methods=["POST"],
     )
 
+    # Admin routes
+    app.add_url_rule(
+        "/admin/users", endpoint="admin_users",
+        view_func=admin_users, methods=["GET"],
+    )
+
     # -----------------------------------------------------------------------
     # Re-register protected routes with login_required wrappers.
     # The decorators must see the final endpoint names, so we apply them
@@ -736,14 +752,19 @@ def register_routes(app):
         ("water_meter_history", "html"),
         ("delete_water_meter_reading", "json"),
         ("delete_water_meter_reading_html", "json"),
+        ("admin_users", "html"),
     ]
     for ep, mode in protected:
         view_func = app.view_functions[ep]
         app.view_functions[ep] = login_required(mode=mode)(view_func)
 
     # -----------------------------------------------------------------------
-    # Context processor: inject username into all templates
+    # Context processor: inject username and is_admin into all templates
     # -----------------------------------------------------------------------
     @app.context_processor
-    def inject_username():
-        return {"username": get_current_username()}
+    def inject_username_and_admin():
+        username = get_current_username()
+        return {
+            "username": username,
+            "is_admin": is_admin(username) if username else False,
+        }

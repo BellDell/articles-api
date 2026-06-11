@@ -93,3 +93,25 @@ def verify_user_password(_db_path, username_canonical, password):
     if user is None:
         return False
     return check_password_hash(user["password_hash"], password)
+
+
+def list_users(_db_path):
+    """Return list of user dicts with username_canonical and created_at.
+
+    Admin-only. Uses Query by app_id + Python filter on entity_type.
+    Strips password_hash before returning.
+    This is an accepted MVP tradeoff — admin-only path, no Scan.
+    """
+    from app.core.storage.dynamodb import query_all_items
+    app_id = _app_id()
+    table = _table()
+    items = query_all_items(table, "app_id", app_id)
+    users = []
+    for item in items:
+        if item.get("entity_type") != "auth_user":
+            continue
+        users.append({
+            "username_canonical": item["username"],
+            "created_at": item.get("registered_at", item["created_at"]),
+        })
+    return users

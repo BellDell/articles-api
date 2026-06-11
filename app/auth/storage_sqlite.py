@@ -90,3 +90,18 @@ def verify_user_password(db_path, username_canonical, password):
     if user is None:
         return False
     return check_password_hash(user["password_hash"], password)
+
+
+def list_users(db_path):
+    """Return list of user dicts with username_canonical and created_at.
+
+    Does NOT return password_hash. Uses a SELECT that explicitly omits it,
+    rather than returning all columns and then stripping.
+    """
+    ensure_db_initialized(db_path)
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            "SELECT username_canonical, created_at FROM auth_users ORDER BY created_at ASC"
+        )
+        return [dict(row) for row in cursor.fetchall()]

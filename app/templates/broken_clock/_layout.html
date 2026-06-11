@@ -273,6 +273,9 @@
     </div>
 
     <div class="navbar-end">
+      {% if username and is_admin %}
+      <a class="navbar-item" href="/admin/users">Admin</a>
+      {% endif %}
       {% if username %}
       <span class="navbar-item" style="color: var(--bc-text-secondary); font-size: 13px;">
         Logged in as <strong style="margin-left: 4px;">{{ username }}</strong>
