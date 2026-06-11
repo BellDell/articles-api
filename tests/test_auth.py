@@ -832,3 +832,67 @@ class TestAuthRegisterErrorIsolation:
         })
         assert resp.status_code == 409
         assert resp.get_json() == {"error": "Username already exists"}
+
+
+# ---------------------------------------------------------------------------
+# list_users SQLite tests
+# ---------------------------------------------------------------------------
+
+class TestListUsersSQLite:
+    """Direct tests for storage_sqlite.list_users() and facade."""
+
+    def test_empty_when_no_users(self, tmp_path):
+        import app.auth.storage_sqlite as sql
+        db = str(tmp_path / "test_list_empty.db")
+        result = sql.list_users(db)
+        assert result == []
+
+    def test_returns_username_and_created_at(self, tmp_path):
+        import app.auth.storage_sqlite as sql
+        db = str(tmp_path / "test_list_users.db")
+        sql.ensure_db_initialized(db)
+        sql.create_user(db, "alice", "secret")
+        users = sql.list_users(db)
+        assert len(users) == 1
+        assert users[0]["username_canonical"] == "alice"
+        assert "created_at" in users[0]
+        assert "T" in users[0]["created_at"]
+
+    def test_does_not_return_password_hash(self, tmp_path):
+        import app.auth.storage_sqlite as sql
+        db = str(tmp_path / "test_no_hash.db")
+        sql.ensure_db_initialized(db)
+        sql.create_user(db, "bob", "secret")
+        users = sql.list_users(db)
+        assert "password_hash" not in users[0]
+
+    def test_returns_multiple_users_ordered_by_created(self, tmp_path):
+        import app.auth.storage_sqlite as sql
+        db = str(tmp_path / "test_multi.db")
+        sql.create_user(db, "first_user", "secret")
+        sql.create_user(db, "second_user", "secret2")
+        users = sql.list_users(db)
+        assert len(users) == 2
+        assert users[0]["username_canonical"] == "first_user"
+        assert users[1]["username_canonical"] == "second_user"
+
+    def test_facade_list_users_sqlite(self, tmp_path):
+        import os
+        db_path = tmp_path / "test_facade_list.db"
+        os.environ["APP_DB_PATH"] = str(db_path)
+        os.environ["STORAGE_BACKEND"] = "sqlite"
+        import app.auth.storage as auth_storage
+        auth_storage.create_user("facade_user", "secret")
+        users = auth_storage.list_users()
+        assert len(users) == 1
+        assert users[0]["username_canonical"] == "facade_user"
+        assert "password_hash" not in users[0]
+
+    def test_facade_list_users_empty_sqlite(self, tmp_path):
+        import os
+        db_path = tmp_path / "test_facade_list_empty.db"
+        os.environ["APP_DB_PATH"] = str(db_path)
+        os.environ["STORAGE_BACKEND"] = "sqlite"
+        import app.auth.storage as auth_storage
+        users = auth_storage.list_users()
+        assert users == []

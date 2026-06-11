@@ -9,7 +9,7 @@ import pytest
 from werkzeug.security import check_password_hash
 
 from app.auth.storage import DuplicateUserError
-from app.auth.storage_dynamodb import create_user, get_user_by_username
+from app.auth.storage_dynamodb import create_user, get_user_by_username, list_users
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +23,7 @@ class FakeTable:
         self.items = {}
         self.get_item_calls = []
         self.put_item_calls = []
+        self.query_calls = []
         self.put_item_exception = None
 
     def get_item(self, Key=None):
@@ -40,6 +41,22 @@ class FakeTable:
             error_response = {"Error": {"Code": "ConditionalCheckFailedException"}}
             raise ClientError(error_response, "PutItem")
         self.items[key] = Item
+
+    def query(self, KeyConditionExpression=None, ExpressionAttributeValues=None,
+              ScanIndexForward=None, ExclusiveStartKey=None):
+        self.query_calls.append({
+            "KeyConditionExpression": KeyConditionExpression,
+            "ExpressionAttributeValues": ExpressionAttributeValues,
+            "ScanIndexForward": ScanIndexForward,
+            "ExclusiveStartKey": ExclusiveStartKey,
+        })
+        # Return all items that match the hash key (app_id)
+        items = []
+        for key, item in sorted(self.items.items(), key=lambda k: k[1].get("created_at", ""), reverse=True):
+            if item.get("app_id") == ExpressionAttributeValues.get(":hv"):
+                items.append(item)
+        result = {"Items": items}
+        return result
 
 
 def make_client_error(code="InternalServerError"):
@@ -273,3 +290,136 @@ class TestAuthStorageFacadeDynamoDB:
         with pytest.raises(Exception) as exc:
             create_user(None, "anotheruser", "secret")
         assert not isinstance(exc.value, DuplicateUserError)
+
+
+# ---------------------------------------------------------------------------
+# list_users tests
+# ---------------------------------------------------------------------------
+
+class TestListUsersDynamoDB:
+    """Direct tests for storage_dynamodb.list_users()."""
+
+    def test_returns_empty_list_when_no_users(self, _fake_table):
+        result = list_users(None)
+        assert result == []
+
+    def test_returns_only_auth_users(self, _fake_table):
+        """Non-auth-user items are filtered out."""
+        _fake_table.items[("test-app", "auth_user#alice")] = {
+            "app_id": "test-app",
+            "created_at": "auth_user#alice",
+            "entity_type": "auth_user",
+            "username": "alice",
+            "password_hash": "hash1",
+            "registered_at": "2025-01-01T00:00:00Z",
+        }
+        _fake_table.items[("test-app", "other_type")] = {
+            "app_id": "test-app",
+            "created_at": "other_type",
+            "entity_type": "something_else",
+        }
+        result = list_users(None)
+        assert len(result) == 1
+        assert result[0]["username_canonical"] == "alice"
+
+    def test_returns_username_canonical_and_created_at(self, _fake_table):
+        _fake_table.items[("test-app", "auth_user#bob")] = {
+            "app_id": "test-app",
+            "created_at": "auth_user#bob",
+            "entity_type": "auth_user",
+            "username": "bob",
+            "password_hash": "hash2",
+            "registered_at": "2025-06-01T00:00:00Z",
+        }
+        result = list_users(None)
+        assert len(result) == 1
+        user = result[0]
+        assert user["username_canonical"] == "bob"
+        assert user["created_at"] == "2025-06-01T00:00:00Z"
+
+    def test_does_not_return_password_hash(self, _fake_table):
+        _fake_table.items[("test-app", "auth_user#charlie")] = {
+            "app_id": "test-app",
+            "created_at": "auth_user#charlie",
+            "entity_type": "auth_user",
+            "username": "charlie",
+            "password_hash": "sensitive_hash",
+            "registered_at": "2025-01-01T00:00:00Z",
+        }
+        result = list_users(None)
+        assert "password_hash" not in result[0]
+        assert "sensitive_hash" not in str(result)
+
+    def test_uses_query_not_scan(self, _fake_table):
+        list_users(None)
+        # query_calls should be populated, scan_called should not exist
+        assert len(_fake_table.query_calls) >= 1
+        assert not hasattr(_fake_table, "scan_called") or not _fake_table.scan_called
+
+    def test_returns_multiple_users(self, _fake_table):
+        _fake_table.items[("test-app", "auth_user#alice")] = {
+            "app_id": "test-app",
+            "created_at": "auth_user#alice",
+            "entity_type": "auth_user",
+            "username": "alice",
+            "password_hash": "h1",
+            "registered_at": "2025-01-01T00:00:00Z",
+        }
+        _fake_table.items[("test-app", "auth_user#bob")] = {
+            "app_id": "test-app",
+            "created_at": "auth_user#bob",
+            "entity_type": "auth_user",
+            "username": "bob",
+            "password_hash": "h2",
+            "registered_at": "2025-06-01T00:00:00Z",
+        }
+        result = list_users(None)
+        assert len(result) == 2
+
+    def test_filters_by_app_id(self, _fake_table):
+        """Items from a different app_id are not returned."""
+        _fake_table.items[("other-app", "auth_user#eve")] = {
+            "app_id": "other-app",
+            "created_at": "auth_user#eve",
+            "entity_type": "auth_user",
+            "username": "eve",
+            "password_hash": "h3",
+            "registered_at": "2025-01-01T00:00:00Z",
+        }
+        result = list_users(None)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Facade-level list_users tests
+# ---------------------------------------------------------------------------
+
+class TestListUsersFacadeDynamoDB:
+    """Prove auth_storage.list_users() works through facade with DynamoDB."""
+
+    def test_list_users_via_facade_returns_usernames(self, _fake_table):
+        import app.auth.storage as auth_storage
+        auth_storage.create_user("user_one", "secret")
+        auth_storage.create_user("user_two", "secret")
+        users = auth_storage.list_users()
+        assert len(users) == 2
+        usernames = {u["username_canonical"] for u in users}
+        assert usernames == {"user_one", "user_two"}
+
+    def test_list_users_via_facade_no_password_hash(self, _fake_table):
+        import app.auth.storage as auth_storage
+        auth_storage.create_user("safe_user", "secret")
+        users = auth_storage.list_users()
+        assert "password_hash" not in users[0]
+
+    def test_list_users_empty_via_facade(self, _fake_table):
+        import app.auth.storage as auth_storage
+        users = auth_storage.list_users()
+        assert users == []
+
+    def test_list_users_query_not_scan_via_facade(self, _fake_table):
+        import app.auth.storage as auth_storage
+        auth_storage.create_user("x", "secret")
+        auth_storage.list_users()
+        assert len(_fake_table.query_calls) >= 1
+        assert not hasattr(_fake_table, "scan_called") or not _fake_table.scan_called
