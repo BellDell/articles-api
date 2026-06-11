@@ -5,7 +5,7 @@ It only depends on app.broken_clock (pure calculation helpers)
 and app.broken_clock_storage (SQLite storage helpers).
 """
 
-from flask import request, jsonify, render_template, redirect, make_response
+from flask import request, jsonify, render_template, redirect, make_response, g
 from datetime import datetime
 import os
 from werkzeug.security import check_password_hash
@@ -30,7 +30,10 @@ from app.water_meter import storage as wm_storage
 from app.water_meter.domain import validate_reading
 from app.core.rate_limit import consume_write_quota
 from app.core.rate_limit.limiter import make_429_response
-
+from app.core.authz import (
+    login_required,
+    get_current_username,
+)
 
 BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
 BROKEN_CLOCK_RESULT_TEMPLATE = "broken_clock/result.html"
@@ -233,8 +236,9 @@ def broken_clock_form():
 
 def broken_clock_history():
     db_path = get_db_path()
+    owner_username = getattr(g, "current_username", None)
     try:
-        history = get_history(db_path)
+        history = get_history(db_path, owner_username=owner_username)
     except Exception as e:
         if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML:
             return render_template(
@@ -301,7 +305,8 @@ def broken_clock_calculate():
         db_path = get_db_path()
         save_calculation(db_path, real_observed_time, wrong_observed_time,
                          offset_minutes, offset_human, clock_status,
-                         target_wrong_times, reference_points)
+                         target_wrong_times, reference_points,
+                         owner_username=getattr(g, "current_username", None))
     except Exception as e:
         if request.is_json:
             return jsonify({"error": f"Database error: {str(e)}"}), 500
@@ -338,8 +343,9 @@ def broken_clock_calculate():
 def delete_history(record_id):
     """DELETE /broken-clock/history/<record_id> — JSON API."""
     db_path = get_db_path()
+    owner_username = getattr(g, "current_username", None)
     try:
-        deleted = delete_history_record(record_id, db_path)
+        deleted = delete_history_record(record_id, db_path, owner_username=owner_username)
     except Exception as e:
         return jsonify({"error": f"Database error: {str(e)}"}), 500
 
@@ -352,8 +358,9 @@ def delete_history(record_id):
 def delete_history_html(record_id):
     """POST /broken-clock/history/<record_id>/delete — HTML form fallback."""
     db_path = get_db_path()
+    owner_username = getattr(g, "current_username", None)
     try:
-        deleted = delete_history_record(record_id, db_path)
+        deleted = delete_history_record(record_id, db_path, owner_username=owner_username)
     except Exception as e:
         return render_template(
             BROKEN_CLOCK_ERROR_TEMPLATE,
@@ -425,6 +432,7 @@ def water_meter_add_reading():
             meter_name=cleaned["meter_name"],
             unit=cleaned["unit"],
             notes=cleaned["notes"],
+            owner_username=getattr(g, "current_username", None),
         )
     except Exception as e:
         if request.is_json:
@@ -438,8 +446,9 @@ def water_meter_add_reading():
 
 def water_meter_history():
     db_path = wm_storage.get_db_path()
+    owner_username = getattr(g, "current_username", None)
     try:
-        readings = wm_storage.get_readings(db_path)
+        readings = wm_storage.get_readings(db_path, owner_username=owner_username)
     except Exception as e:
         if request.accept_mimetypes.best_match(ACCEPT_PREFERENCE) == TEXT_HTML:
             return make_water_meter_error_response(f"Database error: {e}", 500)
@@ -453,8 +462,9 @@ def water_meter_history():
 def delete_water_meter_reading(record_id):
     """DELETE /water-meter/readings/<record_id> — JSON API."""
     db_path = wm_storage.get_db_path()
+    owner_username = getattr(g, "current_username", None)
     try:
-        deleted = wm_storage.delete_reading(record_id, db_path)
+        deleted = wm_storage.delete_reading(record_id, db_path, owner_username=owner_username)
     except Exception as e:
         return jsonify({"error": f"Database error: {str(e)}"}), 500
 
@@ -467,8 +477,9 @@ def delete_water_meter_reading(record_id):
 def delete_water_meter_reading_html(record_id):
     """POST /water-meter/readings/<record_id>/delete — HTML form fallback."""
     db_path = wm_storage.get_db_path()
+    owner_username = getattr(g, "current_username", None)
     try:
-        deleted = wm_storage.delete_reading(record_id, db_path)
+        deleted = wm_storage.delete_reading(record_id, db_path, owner_username=owner_username)
     except Exception as e:
         return make_water_meter_error_response(f"Database error: {e}", 500)
 
@@ -708,3 +719,31 @@ def register_routes(app):
         "/auth/register", endpoint="auth_register_post",
         view_func=auth_register_post, methods=["POST"],
     )
+
+    # -----------------------------------------------------------------------
+    # Re-register protected routes with login_required wrappers.
+    # The decorators must see the final endpoint names, so we apply them
+    # here rather than at definition time.
+    # -----------------------------------------------------------------------
+    protected = [
+        ("broken_clock_form", "html"),
+        ("broken_clock_calculate", "json"),
+        ("broken_clock_history", "html"),
+        ("delete_history", "json"),
+        ("delete_history_html", "json"),
+        ("water_meter_form", "html"),
+        ("water_meter_add_reading", "json"),
+        ("water_meter_history", "html"),
+        ("delete_water_meter_reading", "json"),
+        ("delete_water_meter_reading_html", "json"),
+    ]
+    for ep, mode in protected:
+        view_func = app.view_functions[ep]
+        app.view_functions[ep] = login_required(mode=mode)(view_func)
+
+    # -----------------------------------------------------------------------
+    # Context processor: inject username into all templates
+    # -----------------------------------------------------------------------
+    @app.context_processor
+    def inject_username():
+        return {"username": get_current_username()}

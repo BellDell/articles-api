@@ -126,6 +126,21 @@ def client(monkeypatch, tmp_path):
         yield client
 
 
+@pytest.fixture
+def authed_client(client):
+    """Client with registered and logged-in user."""
+    client.post("/auth/register", json={
+        "username": "testuser",
+        "password": "secret123",
+        "confirm_password": "secret123",
+    })
+    client.post("/auth/login", json={
+        "username": "testuser",
+        "password": "secret123",
+    })
+    return client
+
+
 def _create_one_record(client):
     """Helper: POST a valid calculation and return its id."""
     payload = {
@@ -138,10 +153,10 @@ def _create_one_record(client):
     return data[0]["id"]
 
 
-def test_delete_json_success(client):
-    rid = _create_one_record(client)
+def test_delete_json_success(authed_client):
+    rid = _create_one_record(authed_client)
 
-    response = client.delete(f"/broken-clock/history/{rid}")
+    response = authed_client.delete(f"/broken-clock/history/{rid}")
     assert response.status_code == 200
     data = response.get_json()
     assert data["deleted"] is True
@@ -149,8 +164,8 @@ def test_delete_json_success(client):
     assert str(data["id"]) == str(rid)
 
 
-def test_delete_json_not_found(client):
-    response = client.delete("/broken-clock/history/9999")
+def test_delete_json_not_found(authed_client):
+    response = authed_client.delete("/broken-clock/history/9999")
     assert response.status_code == 404
     data = response.get_json()
     assert "error" in data
@@ -158,15 +173,15 @@ def test_delete_json_not_found(client):
     assert data["id"] == "9999"
 
 
-def test_delete_html_post_redirects(client):
-    rid = _create_one_record(client)
+def test_delete_html_post_redirects(authed_client):
+    rid = _create_one_record(authed_client)
 
-    response = client.post(f"/broken-clock/history/{rid}/delete")
+    response = authed_client.post(f"/broken-clock/history/{rid}/delete")
     assert response.status_code == 302
     assert response.headers["Location"] == "/broken-clock/history"
 
 
-def test_delete_html_post_not_found(client):
-    response = client.post("/broken-clock/history/9999/delete")
+def test_delete_html_post_not_found(authed_client):
+    response = authed_client.post("/broken-clock/history/9999/delete")
     assert response.status_code == 404
     assert "text/html" in response.content_type

@@ -35,14 +35,15 @@ def ensure_db_initialized(_db_path):
 
 
 def save_reading(_db_path, reading_value, reading_date,
-                 meter_name="main", unit="m3", notes=""):
+                 meter_name="main", unit="m3", notes="",
+                 owner_username=None):
     """Insert a water meter reading into DynamoDB."""
     app_id = _app_id()
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     reading_value_decimal = Decimal(str(reading_value))
 
     table = _table()
-    table.put_item(Item={
+    item = {
         "id": uuid.uuid4().hex[:12],
         "app_id": app_id,
         "created_at": created_at,
@@ -52,11 +53,19 @@ def save_reading(_db_path, reading_value, reading_date,
         "reading_value": reading_value_decimal,
         "unit": unit,
         "notes": notes,
-    })
+    }
+    if owner_username:
+        item["owner_username"] = owner_username
+    table.put_item(Item=item)
 
 
-def get_readings(_db_path):
-    """Return all water meter readings, newest first, with SQLite-compatible shape."""
+def get_readings(_db_path, owner_username=None):
+    """Return water meter readings, newest first, with SQLite-compatible shape.
+
+    If *owner_username* is set (and user is not admin), only return readings
+    owned by that user, excluding legacy unowned records.
+    """
+    from app.core.authz import is_admin
     app_id = _app_id()
     table = _table()
     items = query_all_items(table, "app_id", app_id)
@@ -65,6 +74,12 @@ def get_readings(_db_path):
     for item in items:
         if item.get("entity_type") != ENTITY_TYPE:
             continue
+        record_owner = item.get("owner_username")
+        if owner_username and not is_admin(owner_username):
+            if not record_owner:
+                continue
+            if record_owner != owner_username:
+                continue
         id_val = item.get("id", item["created_at"])
         reading_value = item["reading_value"]
         if isinstance(reading_value, Decimal):
@@ -99,8 +114,13 @@ def get_meter_names(_db_path):
     return sorted(names)
 
 
-def delete_reading(record_id, _db_path):
-    """Delete a Water Meter reading by stable id. Returns True if deleted, False if not found."""
+def delete_reading(record_id, _db_path, owner_username=None):
+    """Delete a Water Meter reading by stable id.
+
+    If *owner_username* is set (and is not admin), only delete if the record
+    belongs to that user. Returns True if deleted, False if not found.
+    """
+    from app.core.authz import is_admin
     app_id = _app_id()
     table = _table()
     items = query_all_items(table, "app_id", app_id)
@@ -115,6 +135,12 @@ def delete_reading(record_id, _db_path):
 
     if target is None:
         return False
+
+    # Ownership check for normal users
+    if owner_username and not is_admin(owner_username):
+        record_owner = target.get("owner_username")
+        if not record_owner or record_owner != owner_username:
+            return False
 
     table.delete_item(Key={
         "app_id": target["app_id"],
