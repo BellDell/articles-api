@@ -4,16 +4,36 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Login</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
-  <form id="login-form" method="post" action="/auth/login">
-    <label>Username:
-      <input name="username" type="text" required>
-    </label>
-    <label>Password:
-      <input name="password" type="password" required>
-    </label>
-    <button type="submit">Login</button>
-  </form>
+  <div class="auth-card">
+    <div class="accent-rule"></div>
+    <h1>Login</h1>
+
+    {% if error %}
+    <div class="message-error">{{ error }}</div>
+    {% endif %}
+
+    {% if registered %}
+    <div class="message-success">Account created successfully. Please log in.</div>
+    {% endif %}
+
+    <form class="auth-form" method="post" action="/auth/login">
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" value="{{ username or '' }}" placeholder="Enter your username" required autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" placeholder="Enter your password" required autocomplete="current-password">
+      </div>
+      <button type="submit">Login</button>
+    </form>
+
+    <div class="auth-footer">
+      Don't have an account? <a href="/auth/register">Register here</a>
+    </div>
+  </div>
 </body>
 </html>

@@ -29,7 +29,7 @@ from app.broken_clock.storage import get_db_path, save_calculation, get_history,
 from app.water_meter import storage as wm_storage
 from app.water_meter.domain import validate_reading
 from app.core.rate_limit import consume_write_quota
-from app.core.rate_limit.limiter import make_429_response, WINDOW_SECONDS, MAX_WRITES
+from app.core.rate_limit.limiter import make_429_response
 
 
 BROKEN_CLOCK_ERROR_TEMPLATE = "broken_clock/error.html"
@@ -398,7 +398,11 @@ def water_meter_add_reading():
         msg = "; ".join(errors.values())
         if request.is_json:
             return jsonify({"error": msg}), 400
-        return redirect(f"/water-meter?error={msg}&reading_date={data.get('reading_date', '')}&meter_name={data.get('meter_name', '')}&unit={data.get('unit', '')}&notes={data.get('notes', '')}")
+        rd = data.get("reading_date", "")
+        mn = data.get("meter_name", "")
+        un = data.get("unit", "")
+        no = data.get("notes", "")
+        return redirect(f"/water-meter?error={msg}&reading_date={rd}&meter_name={mn}&unit={un}&notes={no}")
 
     # Rate limit check — after validation, before DB write
     allowed, retry_after = consume_write_quota("water_meter", request.remote_addr)
@@ -474,6 +478,12 @@ def delete_water_meter_reading_html(record_id):
     return redirect("/water-meter/history")
 
 
+def _wants_html():
+    """Return True if the client prefers HTML over JSON."""
+    best = request.accept_mimetypes.best_match([TEXT_HTML, APPLICATION_JSON])
+    return best == TEXT_HTML
+
+
 def _parse_cookie_secure():
     """Return True if the auth cookie should have the Secure flag."""
     val = os.environ.get("AUTH_COOKIE_SECURE", "").strip().lower()
@@ -484,7 +494,48 @@ def _parse_cookie_secure():
 
 def auth_login_get():
     """GET /auth/login — render the login page."""
-    return render_template("auth/login.html"), 200
+    registered = request.args.get("registered", "")
+    return render_template("auth/login.html", registered=bool(registered)), 200
+
+
+def _login_validate_credentials(username_canonical, password):
+    """Return (user_dict_or_None, error_message_or_None)."""
+    # Check stored users first
+    stored_user = auth_storage.get_user_by_username(username_canonical)
+
+    if stored_user is not None:
+        if not auth_storage.verify_user_password(username_canonical, password):
+            return None, "Invalid credentials"
+        return stored_user, None
+
+    # Env fallback
+    expected_username = os.environ.get("AUTH_USERNAME", "").strip().casefold()
+    expected_hash = os.environ.get("AUTH_PASSWORD_HASH", "")
+    if username_canonical != expected_username or not check_password_hash(expected_hash, password):
+        return None, "Invalid credentials"
+    return None, None
+
+
+def _login_success_response(username_canonical):
+    token = issue_token(username_canonical)
+    if _wants_html():
+        resp = make_response(redirect("/"))
+    else:
+        resp = make_response(jsonify({"message": "Login successful"}))
+    resp.set_cookie(
+        "access_token",
+        token,
+        httponly=True,
+        samesite="Lax",
+        secure=_parse_cookie_secure(),
+    )
+    return resp
+
+
+def _login_error_response(error_message, status_code):
+    if _wants_html():
+        return render_template("auth/login.html", error=error_message), status_code
+    return jsonify({"error": error_message}), status_code
 
 
 def auth_login_post():
@@ -498,38 +549,22 @@ def auth_login_post():
     password = data.get("password", "")
 
     if not username.strip() or not password:
-        return jsonify({"error": "Username and password are required"}), 400
+        return _login_error_response("Username and password are required", 400)
 
     username_canonical = username.strip().casefold()
+    _, error = _login_validate_credentials(username_canonical, password)
+    if error:
+        return _login_error_response(error, 401)
 
-    # Check stored users first
-    stored_user = auth_storage.get_user_by_username(username_canonical)
-
-    if stored_user is not None:
-        if not auth_storage.verify_user_password(username_canonical, password):
-            return jsonify({"error": "Invalid credentials"}), 401
-    else:
-        # Env fallback for backward compatibility
-        expected_username = os.environ.get("AUTH_USERNAME", "").strip().casefold()
-        expected_hash = os.environ.get("AUTH_PASSWORD_HASH", "")
-        if username_canonical != expected_username or not check_password_hash(expected_hash, password):
-            return jsonify({"error": "Invalid credentials"}), 401
-
-    token = issue_token(username_canonical)
-    resp = make_response(jsonify({"message": "Login successful"}))
-    resp.set_cookie(
-        "access_token",
-        token,
-        httponly=True,
-        samesite="Lax",
-        secure=_parse_cookie_secure(),
-    )
-    return resp
+    return _login_success_response(username_canonical)
 
 
 def auth_logout():
     """POST /auth/logout — clear the JWT cookie."""
-    resp = make_response(jsonify({"message": "Logged out"}))
+    if _wants_html():
+        resp = make_response(redirect("/auth/login"))
+    else:
+        resp = make_response(jsonify({"message": "Logged out"}))
     resp.set_cookie(
         "access_token",
         "",
@@ -566,6 +601,12 @@ def _parse_register_data():
     return data
 
 
+def _register_error_response(error_message, status_code=400):
+    if _wants_html():
+        return render_template("auth/register.html", error=error_message), status_code
+    return jsonify({"error": error_message}), status_code
+
+
 def auth_register_post():
     """POST /auth/register — create a new user."""
     data = _parse_register_data()
@@ -575,20 +616,22 @@ def auth_register_post():
     confirm_password = data.get("confirm_password", "")
 
     if not username.strip() or not password.strip() or not confirm_password.strip():
-        return jsonify({
-            "error": "Username, password, and confirm password are required"
-        }), 400
+        return _register_error_response(
+            "Username, password, and confirm password are required"
+        )
 
     if password != confirm_password:
-        return jsonify({"error": "Passwords do not match"}), 400
+        return _register_error_response("Passwords do not match")
 
     username_canonical = username.strip().casefold()
 
     try:
         auth_storage.create_user(username_canonical, password)
     except DuplicateUserError:
-        return jsonify({"error": "Username already exists"}), 409
+        return _register_error_response("Username already exists", 409)
 
+    if _wants_html():
+        return redirect("/auth/login?registered=1")
     return jsonify({"message": "User registered"}), 201
 
 

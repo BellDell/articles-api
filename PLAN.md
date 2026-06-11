@@ -1,249 +1,227 @@
-# Plan: Feature route protection and Water Meter ownership
+# Plan: Auth UI polish, shared CSS, and quiet health logs
 
-## 1. Goal
+## 1. Objective
 
-Require login for feature routes and ensure Water Meter readings are visible only to their owner, with admin users allowed to see and delete all Water Meter readings.
+Improve authentication page appearance and browser behavior, extract shared CSS, and suppress noisy health-check log lines. Keep this PR small and safe — no route protection, no ownership changes, no backend storage changes.
 
 ## 2. In scope
 
-* Add `login_required` that accepts an explicit mode, not Accept-header guessing.
-* `login_required(mode="html")` redirects anonymous users to `/auth/login`.
-* `login_required(mode="json")` returns HTTP 401 with `{"error": "Authentication required"}`.
-* `login_required` extracts the canonical username from the existing JWT cookie.
-* Canonical username rule: `username.strip().casefold()`.
-* `login_required` is applied explicitly per-route, not as broad global middleware.
+- Create `app/static/css/app.css` with shared styling:
+  - Base typography, colors, layout.
+  - Centered card layout for auth pages.
+  - Readable form labels, clear error/success messages.
+  - Accessible focus states.
+  - Mobile-friendly width.
+  - No external CSS/CDN dependencies.
+  - No build tools.
 
-Protected HTML page routes (use `mode="html"`):
+- Update templates to use the shared CSS:
+  - Base layout template includes `<link rel="stylesheet" href="...">` to `app.css`.
+  - Remove large inline style blocks where possible.
+  - Move auth-page-specific styles into `app.css`.
 
-* `GET /broken-clock`
-* `GET /broken-clock/history`
-* `GET /water-meter`
-* `GET /water-meter/history`
+- Improve `/auth/login` page visually:
+  - Centered card with form fields.
+  - Clear error display on invalid credentials.
+  - Link to `/auth/register` for new users.
 
-Explicit route mapping for HTML routes using `login_required(mode="html")`:
+- Improve `/auth/register` page visually:
+  - Centered card with form fields.
+  - Clear error display on validation failures.
+  - On success, redirect browser to `/auth/login` with a flash/success message.
+  - Link to `/auth/login` for existing users.
 
-* GET /broken-clock uses login_required(mode="html")
-* GET /broken-clock/history uses login_required(mode="html")
-* GET /water-meter uses login_required(mode="html")
-* GET /water-meter/history uses login_required(mode="html")
+- Improve browser form behavior for auth routes:
+  - Browser `POST /auth/register` on success redirects to `/auth/login` (or renders success message and link).
+  - Browser `POST /auth/register` on validation error re-renders with error message.
+  - Browser `POST /auth/login` on success redirects to `/` (or a safe next URL).
+  - Browser `POST /auth/login` on invalid credentials re-renders with error message.
+  - Browser `POST /auth/logout` redirects to `/auth/login` with confirmation.
+  - API-style requests (no `Accept: text/html`) preserve existing JSON response shapes.
 
-Protected write/delete/action routes (use `mode="json"`):
-
-* `POST /broken-clock/calculate`
-* `DELETE /broken-clock/history/<record_id>`
-* `POST /broken-clock/history/<record_id>/delete`
-* `POST /water-meter/readings`
-* `DELETE /water-meter/readings/<record_id>`
-* `POST /water-meter/readings/<record_id>/delete`
-
-Explicit route mapping for JSON/action routes using `login_required(mode="json")`:
-
-* POST /broken-clock/calculate uses login_required(mode="json")
-* DELETE /broken-clock/history/<record_id> uses login_required(mode="json")
-* POST /broken-clock/history/<record_id>/delete uses login_required(mode="json")
-* POST /water-meter/readings uses login_required(mode="json")
-* DELETE /water-meter/readings/<record_id> uses login_required(mode="json")
-* POST /water-meter/readings/<record_id>/delete uses login_required(mode="json")
-
-Public routes:
-
-* `GET /`
-* `GET /auth/login`
-* `POST /auth/login`
-* `GET /auth/register`
-* `POST /auth/register`
-* `POST /auth/logout`
-* `GET /auth/me`
-* static files
-
-Water Meter ownership:
-
-* New Water Meter readings store `owner_username`.
-* `owner_username` is the authenticated canonical username from JWT context.
-* Normal user sees only readings where `owner_username` equals current canonical username.
-* Admin user sees all readings.
-* Normal user can delete only their own readings.
-* Admin user can delete any reading.
-* Normal user deleting another user's reading returns HTTP 404 with `{"error": "Reading not found"}`.
-* Normal user deleting a legacy reading without `owner_username` returns HTTP 404 with `{"error": "Reading not found"}`.
-* Unauthorized access (read or delete) to another user's Water Meter record returns HTTP 404 with `{"error": "Reading not found"}`.
-* Unauthorized access to a legacy ownerless Water Meter record by a normal user returns HTTP 404 with `{"error": "Reading not found"}`.
-* This 404 rule applies to delete routes and any single-record read route if such a route exists.
-* Admin users may read/delete any Water Meter record, including legacy ownerless records.
-
-Admin users:
-
-* Admins are configured with `AUTH_ADMIN_USERS`.
-* `AUTH_ADMIN_USERS` is a comma-separated list of canonical usernames.
-* Missing or empty `AUTH_ADMIN_USERS` means no admins.
-* Parsing trims whitespace and applies `.casefold()`.
-
-Legacy Water Meter records:
-
-* Legacy records are records without `owner_username`.
-* Legacy records without `owner_username` are hidden from normal users.
-* Legacy records without `owner_username` are visible to admin users.
-* Legacy records without `owner_username` are deletable by admin users.
-
-SQLite Water Meter compatibility:
-
-* Add an idempotent SQLite schema helper for Water Meter storage, e.g. `ensure_water_meter_schema()`.
-* The helper checks whether `owner_username` column exists.
-* The helper checks whether owner_username column exists.
-* If `owner_username` is missing, it runs:
-  `ALTER TABLE <water_meter_table> ADD COLUMN owner_username TEXT`
-* If owner_username is missing, it runs ALTER TABLE on the Water Meter table to add owner_username TEXT.
-* The helper is called before Water Meter insert/list/delete storage operations that depend on `owner_username`.
-* The `ALTER TABLE` path is idempotent and safe for old SQLite DBs.
-* The ALTER TABLE path is idempotent and safe for old SQLite DBs.
-* Old SQLite DBs without `owner_username` remain readable.
-* Old rows get `NULL` `owner_username` and are treated as legacy records.
-* After ALTER TABLE, old rows get NULL owner_username.
-* NULL owner_username is treated as a legacy ownerless record.
-* Filtering by owner works for normal users.
-* Admin/all-read path works.
-
-DynamoDB Water Meter compatibility:
-
-* DynamoDB new Water Meter items include `owner_username`.
-* Normal users must only see records where `owner_username` equals current canonical username.
-* Normal users must not see legacy records without `owner_username`.
-* Admin users may see all records, including legacy records.
-* Normal-user DynamoDB paths must not use `Scan`.
-* Normal-user DynamoDB paths must not leak other users' records.
-* Admin-only DynamoDB all-read path may use `Scan` as an accepted MVP tradeoff.
-* Admin delete-by-id should prefer `GetItem`/conditional delete by key if current storage supports it.
-* No AWS calls at import time.
-* Tests mock/stub boto3 and make no real AWS calls.
-
-Accepted DynamoDB risks:
-
-* DynamoDB admin all-read `Scan` can be inefficient on large tables.
-* This is acceptable for the current small/pet project MVP.
-* No GSI/Terraform changes or DynamoDB table/index migration in this PR.
+- Suppress noisy successful `/health` access logs:
+  - Filter out `GET /health 200` lines from the werkzeug access log.
+  - Do not hide real application errors or tracebacks.
+  - Do not change `/health` response body or status code.
+  - Safe for both App Runner and k3s.
 
 ## 3. Out of scope
 
-* Broken Clock `owner_username` storage is out of scope.
-* Per-user Broken Clock history filtering is out of scope.
-* Admin UI.
-* Roles stored in auth user database.
-* Password policy changes.
-* CSS/styling changes.
-* Auth form redesign.
-* Route URL changes.
-* Existing successful JSON response shape changes unless explicitly required for auth errors.
-* Terraform changes.
-* Dockerfile changes.
-* GitHub Actions changes.
-* Kubernetes/Argo CD changes.
-* App Runner/ECR/IAM/AWS infrastructure changes.
-* Database migration framework.
+- `login_required` route protection.
+- Water Meter ownership or admin behavior.
+- Broken Clock ownership.
+- IAM/App Runner/CloudFormation changes.
+- Kubernetes/Argo CD changes.
+- DynamoDB schema redesign.
+- Password reset or email verification.
+- Large frontend framework or JS rewrite.
+- Changing auth storage, JWT, or cookie behavior.
+- Changing registration validation rules.
+- Changing `/auth/me` contract.
+- Changing Broken Clock or Water Meter business logic.
 
-## 4. Behavior
+## 4. Current behavior to preserve
 
-* Anonymous access to protected HTML feature pages redirects to `/auth/login`.
-* Anonymous `POST /water-meter/readings` returns HTTP 401 with `{"error": "Authentication required"}`.
-* Anonymous protected write/delete routes return HTTP 401 with `{"error": "Authentication required"}`.
-* Auth routes and static files remain public.
-* Successful existing feature behavior remains unchanged for authenticated users except Water Meter data is filtered by owner.
-* New Water Meter readings store `owner_username` internally.
-* `owner_username` is not shown in normal user-facing HTML unless needed for admin/debug tests.
-* Admin users from `AUTH_ADMIN_USERS` can view and delete all Water Meter readings.
-* Normal users cannot view or delete other users' readings.
-* Normal users cannot view or delete legacy readings without `owner_username`.
+- All auth route URLs unchanged:
+  - `GET /auth/login`, `POST /auth/login`, `GET /auth/register`, `POST /auth/register`, `POST /auth/logout`, `GET /auth/me`.
+- API-style requests (JSON Accept header or `is_json` requests) continue to return:
+  - Successful registration: `HTTP 201 {"message": "User registered"}`.
+  - Duplicate username: `HTTP 409 {"error": "Username already exists"}`.
+  - Successful login: `HTTP 200 {"message": "Login successful"}` + cookie.
+  - Invalid login: `HTTP 401 {"error": "Invalid credentials"}`.
+  - Registration validation errors: `HTTP 400` with existing error body.
+- `/health` continues to return `HTTP 200 {"status": "ok"}`.
+- `/auth/me` continues to return existing contract:
+  - Authenticated: `{"authenticated": true, "username": "..."}`.
+  - Anonymous: `{"authenticated": false}`.
+- No cookie flag changes.
+- No registration validation rule changes.
+- No duplicate-user behavior changes.
+- No route protection changes.
+- No Water Meter or Broken Clock changes.
+- Existing rate limiter behavior unchanged.
 
-## 5. Backward compatibility
+## 5. Proposed implementation steps
 
-* Existing route URLs remain unchanged.
-* Existing auth route behavior remains unchanged.
-* Existing Broken Clock storage schema remains unchanged.
-* Broken Clock routes require login, but Broken Clock data ownership is not changed in this PR.
-* Existing Water Meter records without `owner_username` remain compatible as legacy records.
-* Existing Water Meter successful form behavior remains unchanged for authenticated users.
-* Existing rate limiter behavior remains unchanged.
-* Existing App Runner/DynamoDB and Kubernetes/SQLite deployment config remains unchanged.
-* No real AWS calls in tests.
-* No AWS calls at import time.
+1. Create `app/static/css/app.css`:
+   - CSS custom properties for colors/spacing/radii.
+   - Card layout (`.auth-card`) for centering auth forms.
+   - Form styling (`.auth-form`): labels, inputs, buttons.
+   - Error/success message styling (`.message-error`, `.message-success`).
+   - Responsive width using `max-width` and `margin: 0 auto`.
+   - Accessible focus outlines.
 
-## 6. Test strategy
+2. Update base layout template (`app/templates/base.html` or similar):
+   - Add `<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">`.
+   - Ensure existing page structure is not broken.
 
-`login_required` tests:
+3. Update `app/templates/auth/login.html`:
+   - Use `auth-card` and `auth-form` CSS classes.
+   - Replace large inline style blocks.
+   - Add error message display region.
+   - Add link to `/auth/register`.
 
-* GET /broken-clock uses login_required(mode="html").
-* Anonymous `GET /broken-clock` (mode="html") redirects to `/auth/login`.
-* Anonymous `GET /water-meter` (mode="html") redirects to `/auth/login`.
-* POST /water-meter/readings uses login_required(mode="json").
-* Anonymous `POST /water-meter/readings` (mode="json") returns HTTP 401 and `{"error": "Authentication required"}`.
-* Anonymous DELETE/POST delete route (mode="json") returns HTTP 401 and `{"error": "Authentication required"}`.
-* Auth routes remain public.
-* `GET /` remains public.
+4. Update `app/templates/auth/register.html`:
+   - Use `auth-card` and `auth-form` CSS classes.
+   - Replace large inline style blocks.
+   - Add error message display region.
+   - Add link to `/auth/login`.
+   - On success redirect or render success message.
 
-`AUTH_ADMIN_USERS` tests:
+5. Update route handlers in `app/routes.py` (auth login/register):
+   - Distinguish browser vs API requests using `Accept` header or `request.is_json`.
+   - For browser requests:
+     - `POST /auth/register` success → redirect `/auth/login?registered=1`.
+     - `POST /auth/register` error → re-render register page with error.
+     - `POST /auth/login` success → redirect `/`.
+     - `POST /auth/login` error → re-render login page with error.
+     - `POST /auth/logout` → redirect `/auth/login`.
+   - For API requests (JSON content type or `Accept: application/json`):
+     - Keep existing JSON response shapes unchanged.
 
-* Missing env means no admins.
-* Empty env means no admins.
-* Comma-separated admins work.
-* Whitespace/case variations are normalized with `.strip().casefold()`.
+6. Add health log filter:
+   - Create a small werkzeug log filter in `app/app.py` or `app/core/logging.py` that drops `GET /health 200` records from the access logger.
+   - Ensure it does not suppress non-200 `/health` responses or other routes.
+   - Ensure it does not suppress tracebacks or error logs.
 
-Water Meter ownership tests:
+7. Verify all existing tests still pass before any new tests.
 
-* New reading stores `owner_username` for authenticated user.
-* User A sees only user A readings.
-* User B sees only user B readings.
-* Admin sees user A and user B readings.
-* Normal user cannot delete another user's reading and receives HTTP 404 with `{"error": "Reading not found"}`.
-* Admin can delete another user's reading.
-* Legacy record without `owner_username` is hidden from normal user.
-* Legacy record without `owner_username` is visible to admin.
-* Admin can delete legacy record.
+## 6. Browser/API response mode strategy
 
-SQLite storage tests:
+Use `request.is_json` (checking `Content-Type` or `Accept` header) to distinguish:
 
-* SQLite helper adds owner_username TEXT using ALTER TABLE.
-* SQLite helper is idempotent.
-* `owner_username` column is added lazily if missing.
-* Old DB without `owner_username` remains readable.
-* Filtering by owner works.
-* Admin/all-read path works.
-* `ensure_water_meter_schema()` is idempotent and safe for old SQLite DBs.
-* Old DB without `owner_username` gets the column added.
-* Calling the helper repeatedly does not fail.
-* Old rows get `NULL` `owner_username` and are treated as legacy records.
-* Old rows get NULL owner_username and are treated as legacy records.
+- **Browser flow**: Form `POST` typically sends `Content-Type: application/x-www-form-urlencoded` and `Accept: text/html`. `request.is_json` returns `False` or the `Accept` header includes `text/html`. Use `request.accept_mimetypes.best_match` to prefer HTML.
+  - Redirect on success.
+  - Re-render with error on failure.
 
-DynamoDB storage tests:
+- **API flow**: JSON requests with `Content-Type: application/json` or `Accept: application/json`. `request.is_json` returns `True`.
+  - Return existing JSON responses unchanged.
 
-* DynamoDB new Water Meter items include `owner_username`.
-* Normal-user DynamoDB tests must assert no `Scan`.
-* Normal-user filtering excludes other users and legacy records.
-* Legacy records without `owner_username` are visible to admin but hidden from normal users.
-* Admin DynamoDB all-read tests may assert `Scan` is used or allowed.
-* Admin/all-read path includes all Water Meter records including legacy records.
-* Delete authorization uses owner information correctly.
-* Tests mock/stub boto3 and make no real AWS calls.
+- **Accept header preference**: `request.accept_mimetypes.best_match(["text/html", "application/json"])`.
+  - If `text/html` is preferred → browser mode.
+  - If `application/json` is preferred → API mode.
+  - Default to API mode for backward compatibility with existing tests that post form data without explicit Accept headers.
 
-Validation:
+- This approach matches existing patterns in the codebase (see `broken_clock_history`, `water_meter_history` which already use Accept header detection).
 
-* Run `python -m pytest -q`.
-* Run `python -W error::ResourceWarning -m pytest -q`.
+## 7. Health log suppression strategy
 
-## 7. Follow-up steps
+- The app runs on Flask/waitress/werkzeug which prints access log lines like:
+  `INFO:werkzeug:127.0.0.1 - - [date] "GET /health HTTP/1.1" 200 -`
+- Create a `HealthLogFilter(logging.Filter)` that:
+  - Attaches to the `werkzeug` logger.
+  - In `filter(record)`, checks if the log message contains `"GET /health"` and `"200"`.
+  - Returns `False` to drop the record if it matches, `True` otherwise.
+- Register the filter in `app/app.py` after the app is created.
+- The filter does not affect error responses (non-200) or other routes.
+- The filter does not affect Python tracebacks or application error logs.
+- The `/health` endpoint itself continues to work as before.
 
-* Add Broken Clock `owner_username` and per-user Broken Clock history filtering in a separate PR.
-* Consider role storage/admin management UI in a later PR.
-* Polish auth UI and extract shared CSS in a later UI-only PR.
-* Replace admin-only DynamoDB `Scan` with a GSI or better key design if the dataset grows.
+## 8. Tests
 
-After writing, perform a read-only verification of PLAN.md content.
+Add/update tests for:
 
-Return:
+- `GET /auth/login` renders HTML and links to shared CSS (`app.css` or `css/app.css`).
+- `GET /auth/register` renders HTML and links to shared CSS.
+- Browser-style successful registration redirects to `/auth/login` (HTTP 302 or 303).
+- Browser-style registration validation error renders HTML with an error message.
+- API-style successful registration still returns `HTTP 201 {"message": "User registered"}`.
+- API-style duplicate registration still returns `HTTP 409 {"error": "Username already exists"}`.
+- Browser-style successful login redirects to `/` (HTTP 302 or 303) and sets cookie.
+- API-style successful login still returns `HTTP 200 {"message": "Login successful"}`.
+- Browser-style invalid login renders HTML with an error message.
+- Browser logout redirects to `/auth/login`.
+- `/auth/me` behavior unchanged (both authenticated and anonymous).
+- `/health` returns `HTTP 200 {"status": "ok"}`.
+- Health log filter drops `GET /health 200` lines but does not suppress non-200 health responses or other routes.
+- No real AWS calls in tests.
 
-1. Confirmation that PLAN.md was overwritten, not appended.
-2. Confirmation that PLAN.md contains `login_required`.
-3. Confirmation that PLAN.md contains `owner_username`.
-4. Confirmation that PLAN.md contains `AUTH_ADMIN_USERS`.
-5. Confirmation that PLAN.md contains `anonymous POST /water-meter/readings returns HTTP 401`.
-6. Confirmation that PLAN.md does not contain the forbidden phrase `Login-required route protection`.
-7. Confirmation that PLAN.md does not contain the forbidden phrase `User ownership for Broken Clock or Water Meter records`.
-8. Any remaining ambiguity.
+## 9. Rollback notes
+
+If the auth UI changes cause issues:
+
+- Revert `app/routes.py` changes to `auth_login_post`, `auth_register_post`, `auth_logout` — restore the pure JSON/form handlers.
+- Revert template changes — restore old inline styles.
+- Revert `app/app.py` changes — remove the health log filter.
+- Remove `app/static/css/app.css` if it was added.
+- All changes are in Python/HTML/CSS files only — no database or infrastructure changes.
+- Existing tests serve as regression guard.
+
+## 10. Manual verification commands
+
+```bash
+# Run all tests
+python -m pytest -q
+
+# Run with ResourceWarning detection
+python -W error::ResourceWarning -m pytest -q
+
+# Start the app
+python run.py
+
+# Verify health endpoint
+curl http://localhost:5000/health
+
+# Verify health logs are quiet (should see no "GET /health 200" lines)
+
+# Verify browser login page
+open http://localhost:5000/auth/login
+
+# Verify browser register page
+open http://localhost:5000/auth/register
+
+# Test API-style registration
+curl -X POST http://localhost:5000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"secret123","confirm_password":"secret123"}'
+
+# Test API-style login
+curl -X POST http://localhost:5000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"secret123"}'
+
+# Test API-style duplicate registration
+curl -X POST http://localhost:5000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"secret123","confirm_password":"secret123"}'
+```

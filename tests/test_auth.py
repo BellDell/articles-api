@@ -152,10 +152,11 @@ class TestAuthLoginGet:
     def test_contains_login_form(self, client):
         resp = client.get("/auth/login")
         html = resp.get_data(as_text=True)
-        assert 'id="login-form"' in html
         assert 'name="username"' in html
         assert 'name="password"' in html
-        assert "submit" in html
+        assert "Login" in html
+        assert "Register here" in html
+        assert "css/app.css" in html
 
 
 # ---------------------------------------------------------------------------
@@ -384,11 +385,12 @@ class TestAuthRegisterGet:
     def test_contains_register_form(self, client):
         resp = client.get("/auth/register")
         html = resp.get_data(as_text=True)
-        assert 'id="register-form"' in html
         assert 'name="username"' in html
         assert 'name="password"' in html
         assert 'name="confirm_password"' in html
-        assert "submit" in html
+        assert "Register" in html
+        assert "Login here" in html
+        assert "css/app.css" in html
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +462,132 @@ class TestAuthRegisterPost:
         })
         assert resp.status_code == 409
         assert resp.get_json() == {"error": "Username already exists"}
+
+
+# ---------------------------------------------------------------------------
+# Browser-style auth flow tests (Accept header based)
+# ---------------------------------------------------------------------------
+
+class TestAuthBrowserFlow:
+    """Prove browser-style requests use Accept header detection for redirects/HTML."""
+
+    def test_browser_registration_success_redirects(self, client):
+        resp = client.post("/auth/register", data={
+            "username": "browser_reg",
+            "password": "testpass123",
+            "confirm_password": "testpass123",
+        }, headers={"Accept": "text/html"})
+        assert resp.status_code == 302 or resp.status_code == 303
+        assert "/auth/login" in resp.headers.get("Location", "")
+
+    def test_browser_registration_validation_error_renders_html(self, client):
+        resp = client.post("/auth/register", data={
+            "username": "",
+            "password": "pass123",
+            "confirm_password": "pass123",
+        }, headers={"Accept": "text/html"})
+        html = resp.get_data(as_text=True)
+        assert resp.status_code == 400
+        assert "required" in html or "error" in html.lower()
+        assert "css/app.css" in html
+
+    def test_browser_registration_duplicate_renders_html(self, client):
+        client.post("/auth/register", json={
+            "username": "browser_dup",
+            "password": "pass123",
+            "confirm_password": "pass123",
+        })
+        resp = client.post("/auth/register", data={
+            "username": "browser_dup",
+            "password": "otherpass",
+            "confirm_password": "otherpass",
+        }, headers={"Accept": "text/html"})
+        html = resp.get_data(as_text=True)
+        assert resp.status_code == 409
+        assert "already exists" in html
+
+    def test_browser_login_success_redirects(self, client):
+        resp = client.post("/auth/login", data={
+            "username": "admin",
+            "password": "secret123",
+        }, headers={"Accept": "text/html"})
+        assert resp.status_code == 302 or resp.status_code == 303
+        assert "access_token" in resp.headers.get("Set-Cookie", "")
+
+    def test_browser_login_invalid_renders_html(self, client):
+        resp = client.post("/auth/login", data={
+            "username": "admin",
+            "password": "wrongpass",
+        }, headers={"Accept": "text/html"})
+        html = resp.get_data(as_text=True)
+        assert resp.status_code == 401
+        assert "Invalid" in html
+
+    def test_browser_logout_redirects(self, client):
+        resp = client.post("/auth/logout", headers={"Accept": "text/html"})
+        assert resp.status_code == 302 or resp.status_code == 303
+        assert "/auth/login" in resp.headers.get("Location", "")
+
+
+# ---------------------------------------------------------------------------
+# Health endpoint tests
+# ---------------------------------------------------------------------------
+
+class TestHealthEndpoint:
+    def test_returns_200(self, client):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+
+    def test_returns_ok_status(self, client):
+        resp = client.get("/health")
+        assert resp.get_json() == {"status": "ok"}
+
+    def test_health_log_filter_does_not_suppress_non_health(self, client):
+        """Prove the filter does not affect non-health log messages."""
+        import logging
+        from app.app import HealthLogFilter
+
+        flt = HealthLogFilter()
+
+        record = logging.LogRecord(
+            name="werkzeug", level=logging.INFO,
+            pathname="", lineno=0,
+            msg='127.0.0.1 - - [date] "GET /broken-clock HTTP/1.1" 200 -',
+            args=(), exc_info=None,
+        )
+
+        assert flt.filter(record) is True
+
+    def test_health_log_filter_suppresses_200(self, client):
+        import logging
+        from app.app import HealthLogFilter
+
+        flt = HealthLogFilter()
+
+        # Real werkzeug format includes the leading quote before GET
+        record = logging.LogRecord(
+            name="werkzeug", level=logging.INFO,
+            pathname="", lineno=0,
+            msg='127.0.0.1 - - [date] "GET /health HTTP/1.1" 200 -',
+            args=(), exc_info=None,
+        )
+
+        assert flt.filter(record) is False
+
+    def test_health_log_filter_passes_non_200(self, client):
+        import logging
+        from app.app import HealthLogFilter
+
+        flt = HealthLogFilter()
+
+        record = logging.LogRecord(
+            name="werkzeug", level=logging.INFO,
+            pathname="", lineno=0,
+            msg='127.0.0.1 - - [date] "GET /health HTTP/1.1" 503 -',
+            args=(), exc_info=None,
+        )
+
+        assert flt.filter(record) is True
 
     def test_case_insensitive_duplicate(self, client):
         client.post("/auth/register", json={
