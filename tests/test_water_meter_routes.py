@@ -232,3 +232,53 @@ def test_history_sorted_header_shows_indicator(authed_client):
     text = response.get_data(as_text=True)
     # Default sort is descending, so '▼' should appear
     assert "▼" in text or "▲" in text
+
+
+# ---------------------------------------------------------------------------
+# Meter filter tests
+# ---------------------------------------------------------------------------
+
+def test_meter_filter_renders_when_readings_exist(authed_client):
+    """Meter filter select is present when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="meter-filter"' in text
+
+
+def test_meter_filter_has_all_meters_option(authed_client):
+    """Meter filter contains 'All meters' option."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "All meters" in text
+
+
+def test_meter_filter_has_label(authed_client):
+    """Meter filter has a 'Meter' label."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert ">Meter<" in text
+
+
+def test_meter_filter_shows_distinct_meters(authed_client):
+    """Distinct meter names appear as filter options."""
+    authed_client.post("/water-meter/readings", json={
+        "reading_value": 100, "reading_date": "2026-06-01", "meter_name": "kitchen",
+    })
+    authed_client.post("/water-meter/readings", json={
+        "reading_value": 200, "reading_date": "2026-06-02", "meter_name": "garden",
+    })
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "kitchen" in text
+    assert "garden" in text
+
+
+def test_meter_filter_not_in_empty_history(authed_client):
+    """Empty history page does not render meter filter."""
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="meter-filter"' not in text
+    assert "No readings yet" in text
