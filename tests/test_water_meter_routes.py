@@ -12,6 +12,7 @@ from app.app import app as flask_app
 def client(monkeypatch, tmp_path):
     db_path = tmp_path / "test_wm_route.db"
     monkeypatch.setenv("APP_DB_PATH", str(db_path))
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-for-jwt-testing-1234567890")
     flask_app.config["TESTING"] = True
     with flask_app.test_client() as client:
         yield client
@@ -165,3 +166,69 @@ def test_delete_html_post_not_found(authed_client):
     response = authed_client.post("/water-meter/readings/9999/delete")
     assert response.status_code == 404
     assert "text/html" in response.content_type
+
+
+# ---------------------------------------------------------------------------
+# Frontend analytics presence tests
+# ---------------------------------------------------------------------------
+
+def test_history_page_has_table_id(authed_client):
+    """The history table has id="wm-history-table" when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="wm-history-table"' in text
+
+
+def test_history_page_has_stat_card_labels(authed_client):
+    """Stat card labels are present when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "Latest reading" in text
+    assert "This month" in text
+    assert "Daily avg" in text
+
+
+def test_history_page_has_export_csv_button(authed_client):
+    """Export CSV button is present when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="export-csv"' in text
+    assert "Export CSV" in text
+
+
+def test_history_page_has_chart_canvases(authed_client):
+    """Chart canvases are present when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="chart-readings"' in text
+    assert 'id="chart-consumption"' in text
+
+
+def test_empty_history_renders_safely(authed_client):
+    """Empty history page does not show cards, charts, or export button."""
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "No readings yet" in text
+    assert 'id="wm-stats"' not in text
+    assert 'id="export-csv"' not in text
+    assert 'id="chart-readings"' not in text
+
+
+def test_add_another_reading_link_remains(authed_client):
+    """The '← Add another reading' link is still present."""
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "← Add another reading" in text
+
+
+def test_history_sorted_header_shows_indicator(authed_client):
+    """The Date column header has a sort indicator."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    # Default sort is descending, so '▼' should appear
+    assert "▼" in text or "▲" in text
