@@ -90,6 +90,14 @@
         </div>
       </div>
 
+      <div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label class="bc-label" for="meter-filter" style="margin-bottom:0">Meter</label>
+        <select id="meter-filter" class="bc-input"
+                style="width:auto;min-width:160px;padding:6px 10px;font-size:13px;cursor:pointer">
+          <option value="">All meters</option>
+        </select>
+      </div>
+
       <table id="wm-history-table" class="wm-table">
         <thead>
           <tr>
@@ -150,6 +158,11 @@
 
 <script>
 // ---- Water Meter helper functions (outer scope) ----
+const wmState = {
+  sortAsc: false,
+  chartInstances: { readings: null, consumption: null },
+};
+
 function wmParseDate(s) {
   const parts = s.trim().split('-');
   if (parts.length !== 3) return null;
@@ -170,6 +183,58 @@ function wmCompareDates(a, b) {
 }
 
 function wmFormatVal(v) { return v.toFixed(2); }
+
+function wmGetDistinctMeters(readings) {
+  const meters = new Set(readings.map(r => r.meter));
+  return Array.from(meters).sort();
+}
+
+function wmPopulateMeterFilter(readings) {
+  const select = document.getElementById('meter-filter');
+  if (!select) return;
+  select.innerHTML = '<option value="">All meters</option>';
+  wmGetDistinctMeters(readings).forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    select.appendChild(opt);
+  });
+}
+
+function wmGetSelectedMeter() {
+  const select = document.getElementById('meter-filter');
+  return select ? select.value : '';
+}
+
+function wmFilterReadings(readings, meterName) {
+  if (!meterName) return readings;
+  return readings.filter(r => r.meter === meterName);
+}
+
+function wmApplyMeterFilter(tbody, meterName) {
+  Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+    const cell = tr.cells[1].textContent.trim();
+    tr.style.display = (!meterName || meterName === cell) ? '' : 'none';
+  });
+}
+
+function wmRestripeVisibleRows(tbody) {
+  const visible = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
+  visible.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
+}
+
+function wmOnMeterFilterChange() {
+  const meter = wmGetSelectedMeter();
+  const table = document.getElementById('wm-history-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const allReadings = wmParseReadings(tbody);
+  wmApplyMeterFilter(tbody, meter);
+  wmRestripeVisibleRows(tbody);
+  wmUpdateStats(wmFilterReadings(allReadings, meter));
+  wmDestroyCharts();
+  wmSetupCharts(wmFilterReadings(allReadings, meter));
+}
 
 function wmEscapeCsvCell(value) {
   const s = String(value);
@@ -252,6 +317,15 @@ function wmBuildConsumptionSeries(readings) {
   return { labels, data };
 }
 
+function wmDestroyCharts() {
+  ['readings', 'consumption'].forEach(key => {
+    if (wmState.chartInstances[key]) {
+      wmState.chartInstances[key].destroy();
+      wmState.chartInstances[key] = null;
+    }
+  });
+}
+
 function wmSetupCharts(readings) {
   if (typeof Chart === 'undefined' || readings.length < 2) return;
 
@@ -260,7 +334,7 @@ function wmSetupCharts(readings) {
   // Chart A: readings over time
   const ctx1 = document.getElementById('chart-readings');
   if (ctx1) {
-    new Chart(ctx1, {
+    wmState.chartInstances.readings = new Chart(ctx1, {
       type: 'line',
       data: {
         labels: sorted.map(r => r.date),
@@ -290,7 +364,7 @@ function wmSetupCharts(readings) {
   const ctx2 = document.getElementById('chart-consumption');
   if (ctx2) {
     const series = wmBuildConsumptionSeries(readings);
-    new Chart(ctx2, {
+    wmState.chartInstances.consumption = new Chart(ctx2, {
       type: 'bar',
       data: {
         labels: series.labels,
@@ -316,7 +390,7 @@ function wmSetupCharts(readings) {
 
 function wmSetupCsvExport(tbody) {
   document.getElementById('export-csv').addEventListener('click', () => {
-    const trs = tbody.querySelectorAll('tr');
+    const trs = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
     const header = ['Date', 'Meter', 'Value', 'Unit', 'Notes'];
     const csvRows = [header.map(wmEscapeCsvCell).join(',')];
     trs.forEach(tr => {
@@ -352,8 +426,12 @@ function wmSetupSort(table, tbody) {
     });
     trs.forEach(tr => tbody.appendChild(tr));
     dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
-    trs.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
-    wmUpdateStats(wmParseReadings(tbody));
+    // Re-apply current filter after sort
+    const meter = wmGetSelectedMeter();
+    wmApplyMeterFilter(tbody, meter);
+    wmRestripeVisibleRows(tbody);
+    const allReadings = wmParseReadings(tbody);
+    wmUpdateStats(wmFilterReadings(allReadings, meter));
   });
 }
 
@@ -366,10 +444,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const readings = wmParseReadings(tbody);
 
+  wmPopulateMeterFilter(readings);
   wmUpdateStats(readings);
   wmSetupSort(table, tbody);
   wmSetupCharts(readings);
   wmSetupCsvExport(tbody);
+
+  const select = document.getElementById('meter-filter');
+  if (select) {
+    select.addEventListener('change', wmOnMeterFilterChange);
+  }
 });
 </script>
 {% endblock %}

@@ -1,29 +1,34 @@
-# Plan: Water Meter history analytics UI
+# Plan: Water Meter per-meter filtering for history analytics
 
 ## 1. Objective
 
-Improve the Water Meter history page with frontend-only analytics: summary stat cards, clickable date sorting, compact Chart.js charts, and client-side CSV export. No backend changes, no storage changes, no new Flask routes.
+Add frontend-only per-meter filtering to the Water Meter history page. Users can filter the table, stat cards, charts, and CSV export by a specific meter name or see all meters. No backend changes.
 
 ## 2. Current state (verified from disk)
 
 ### Route
 
 - **GET** `/water-meter/history` → endpoint `water_meter_history`
-- Handler: `water_meter_history()` in `app/routes.py`
 - Template: `app/templates/water_meter/history.html`
 
-### History table DOM structure
+### Existing DOM structure
 
 ```html
-<table class="wm-table">
+<div id="wm-stats" class="stat-row">
+  <div class="stat-card"><div class="stat-label">Latest reading</div>...</div>
+  <div class="stat-card"><div class="stat-label">This month</div>...</div>
+  <div class="stat-card"><div class="stat-label">Daily avg</div>...</div>
+</div>
+
+<table id="wm-history-table" class="wm-table">
   <thead>
     <tr>
-      <th>Date</th>
+      <th class="sortable">Date ▼</th>
       <th>Meter</th>
       <th>Value</th>
       <th>Unit</th>
       <th>Notes</th>
-      <th></th>
+      <th></th>  <!-- delete -->
     </tr>
   </thead>
   <tbody>
@@ -39,339 +44,387 @@ Improve the Water Meter history page with frontend-only analytics: summary stat 
     {% endfor %}
   </tbody>
 </table>
+
+<!-- charts, export CSV button -->
 ```
 
-- Table has **no `id`** attribute — the plan will add `id="wm-history-table"`.
-- Rows are rendered **newest first** (backend `ORDER BY created_at DESC`).
-- Alternating row styles via `tr:nth-child(even) td { background: #f8f6f2; }`.
-- Below the table: a summary line and an "← Add another reading" link.
+### Existing JS helper functions (outer scope, `wm`-prefixed)
 
-### Existing CSS
+- `wmParseDate`, `wmDateToKey`, `wmDaysBetween`, `wmCompareDates`, `wmFormatVal`, `wmEscapeCsvCell`
+- `wmParseReadings(tbody)` — returns `[{date, meter, value, unit, notes}]`
+- `wmSortReadings(readings)` — sorted by date ascending
+- `wmCalculateTotalConsumption(readings)` — sum positive diffs
+- `wmUpdateStats(readings)` — updates stat card textContent
+- `wmBuildConsumptionSeries(readings)` — builds chart B data
+- `wmSetupCharts(readings)` — creates Chart.js instances
+- `wmSetupCsvExport(tbody)` — click handler for export
+- `wmSetupSort(table, tbody)` — click handler for date header
 
-The app uses the "Warm Sand" design system defined in `app/templates/broken_clock/_layout.html` (shared via extends). Template-specific styles go in `{% block extra_style %}`.
+### DOMContentLoaded orchestrator
 
-### Script block
+```js
+document.addEventListener('DOMContentLoaded', () => {
+  ...
+  const readings = wmParseReadings(tbody);
+  wmUpdateStats(readings);
+  wmSetupSort(table, tbody);
+  wmSetupCharts(readings);
+  wmSetupCsvExport(tbody);
+});
+```
 
-The layout defines `{% block extra_scripts %}{% endblock %}` at the end, allowing template-specific inline JS. The navbar burger JS runs in the layout directly.
+### Existing tests
+
+In `tests/test_water_meter_routes.py`: 7 frontend presence tests for table ID, stat card labels, export CSV button, chart canvases, empty state, add reading link, sort indicator.
 
 ## 3. Files likely to change
 
 | File | Change |
 |------|--------|
-| `app/templates/water_meter/history.html` | Add stat cards, sort, charts, CSV export, table ID |
-| `tests/test_water_meter_routes.py` | Add frontend presence tests (card labels, CSV button, chart canvas, empty state) |
+| `app/templates/water_meter/history.html` | Add meter filter `<select>` control, new JS filter helpers, update orchestrator and CSV export to respect filtering |
+| `tests/test_water_meter_routes.py` | Add frontend presence tests for meter filter control |
 
-## 4. Proposed stat card design
+## 4. Proposed meter filter UI design
 
-Three cards above the history table in a flex row. Each card is a small `bc-card`-style div (border, background, rounded corners) using existing design tokens.
+Add a `<select>` control between the stat cards and the table, styled to match the existing app look:
 
 ```html
-<div id="wm-stats" class="stat-row">
-  <div class="stat-card">
-    <div class="stat-label">Latest reading</div>
-    <div class="stat-value" id="stat-latest">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">This month</div>
-    <div class="stat-value" id="stat-month">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Daily avg</div>
-    <div class="stat-value" id="stat-daily">—</div>
-  </div>
+<div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+  <label class="bc-label" for="meter-filter" style="margin-bottom:0">Meter</label>
+  <select id="meter-filter" class="bc-input" style="width:auto;min-width:160px;padding:6px 10px;font-size:13px">
+    <option value="">All meters</option>
+  </select>
 </div>
 ```
 
-JavaScript parses existing `<tr>` rows from `#wm-history-table` on `DOMContentLoaded`:
-
-- **Latest reading**: value from the first visible row (newest in DOM after backend sort).
-- **This month**: filter rows where `reading_date` matches current `YYYY-MM`; compute differences between consecutive values (sorted ascending); sum only positive differences.
-- **Daily avg**: sort all rows ascending by date; sum positive differences; divide by days between first and last reading date. Show `—` for ≤ 1 reading.
-
-All values rendered as `X.XX m³` (or unit from first row).
-
-### CSS for stat cards
-
-Added to `{% block extra_style %}`:
+CSS added to `{% block extra_style %}`:
 
 ```css
-.stat-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-.stat-card {
-  flex: 1; min-width: 120px;
-  background: var(--bc-bg-subtle);
-  border: 1px solid var(--bc-border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  text-align: center;
-}
-.stat-label {
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--bc-text-muted); margin-bottom: 4px;
-}
-.stat-value {
-  font-size: 18px; font-weight: 700; color: var(--bc-accent);
-  font-variant-numeric: tabular-nums;
-}
+#meter-filter { cursor: pointer; }
 ```
 
-## 5. Proposed sorting design
+The select options are built dynamically from the DOM table rows using `wmGetDistinctMeters(readings)`.
 
-Add `id="wm-history-table"` to the `<table>` element. JavaScript attaches a click handler to the Date `<th>`:
+## 5. Proposed filtering algorithm
 
-```javascript
-let sortAsc = false;
-const dateHeader = document.querySelector('#wm-history-table th:first-child');
-const tbody = document.querySelector('#wm-history-table tbody');
-dateHeader.style.cursor = 'pointer';
-dateHeader.addEventListener('click', () => {
-  sortAsc = !sortAsc;
-  const rows = Array.from(tbody.querySelectorAll('tr'));
-  rows.sort((a, b) => {
-    const da = a.cells[0].textContent.trim();
-    const db = b.cells[0].textContent.trim();
-    return sortAsc ? da.localeCompare(db) : db.localeCompare(da);
+### State object
+
+Introduce a state object to track the current filter and avoid global variables:
+
+```js
+const wmState = { meterFilter: null, chartInstances: { readings: null, consumption: null } };
+```
+
+### Helper functions (outer scope, `wm`-prefixed)
+
+```js
+function wmGetDistinctMeters(readings) {
+  const meters = new Set(readings.map(r => r.meter));
+  return Array.from(meters).sort();
+}
+
+function wmPopulateMeterFilter(readings) {
+  const select = document.getElementById('meter-filter');
+  if (!select) return;
+  // Keep first option "All meters", remove others
+  select.innerHTML = '<option value="">All meters</option>';
+  const meters = wmGetDistinctMeters(readings);
+  meters.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    select.appendChild(opt);
   });
-  rows.forEach(row => tbody.appendChild(row));
-  dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
-  // Re-stripe alternating rows
-  rows.forEach((row, i) => {
-    row.style.background = i % 2 === 1 ? '#f8f6f2' : '';
-  });
-  // Recalculate stats after sort
-  calculateStats();
-});
-```
-
-- Default sort: descending (newest first, matches backend).
-- Click toggles ascending/descending.
-- Indicator shows `▲` or `▼` next to the Date header.
-- Alternating row stripe is reapplied after every sort.
-- Stat cards recalculate after sort (so they read from the current DOM order).
-- Does not change backend sort.
-
-## 6. Proposed chart design
-
-### Chart.js CDN risk assessment
-
-Chart.js loaded from CDN: `https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js`
-
-**Risk**: CDN availability, version mismatch, security (SRI hashes).
-**Mitigation**: Load with SRI integrity hash. Pin to a specific version. The project already loads Bulma from `cdn.jsdelivr.net` with SRI in the layout, so this follows the existing pattern.
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"
-        integrity="sha384-..."
-        crossorigin="anonymous"
-        defer></script>
-```
-
-(Note: exact SRI hash must be computed at implementation time from the actual CDN file.)
-
-### Chart containers
-
-Two compact chart containers below the table, side-by-side on wide screens, stacked on narrow:
-
-```html
-<div class="chart-row">
-  <div class="chart-box">
-    <h3 class="chart-title">Meter readings over time</h3>
-    <canvas id="chart-readings"></canvas>
-  </div>
-  <div class="chart-box">
-    <h3 class="chart-title">Consumption per period (m³)</h3>
-    <canvas id="chart-consumption"></canvas>
-  </div>
-</div>
-```
-
-CSS for chart containers:
-
-```css
-.chart-row { display: flex; gap: 16px; margin-top: 24px; flex-wrap: wrap; }
-.chart-box {
-  flex: 1; min-width: 280px;
-  background: var(--bc-bg-surface);
-  border: 1px solid var(--bc-border);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-.chart-title {
-  font-size: 12px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--bc-text-muted); margin: 0 0 10px;
-}
-```
-
-### Chart A: Meter readings over time
-
-- Type: line chart.
-- Data from DOM table rows sorted ascending by date.
-- X axis: dates. Y axis: reading values.
-- Point style: circle. Line color: `var(--bc-accent)` (#c2410c).
-- Height: 200px (via CSS on canvas).
-- Empty: do not render chart if less than 2 rows.
-
-### Chart B: Consumption per period (m³)
-
-- Type: bar chart.
-- For each consecutive pair sorted by date ascending:
-  - consumption = current reading value - previous reading value
-  - label = current reading date
-- Skip first reading (no previous).
-- If consumption is negative, treat as `0` for display.
-- X axis: dates. Y axis: consumption.
-- Bar color: `var(--bc-accent)`.
-- Height: 200px.
-- Empty: do not render chart if less than 2 rows.
-
-Chart instances are created/destroyed on DOMContentLoaded only (no dynamic update needed beyond initial render).
-
-## 7. Proposed CSV export design
-
-### Button
-
-Place an "Export CSV" button next to the existing "← Add another reading" link:
-
-```html
-<div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
-  <a class="bc-btn-ghost" href="/water-meter">← Add another reading</a>
-  <button id="export-csv" class="bc-btn-ghost">Export CSV</button>
-</div>
-```
-
-### CSV generation
-
-```javascript
-function escapeCsvCell(value) {
-  const s = String(value);
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return '"' + s.replace(/"/g, '""') + '"';
+  // Restore previously selected value (if any)
+  if (wmState.meterFilter) {
+    select.value = wmState.meterFilter;
   }
-  return s;
 }
 
-document.getElementById('export-csv').addEventListener('click', () => {
-  const rows = document.querySelectorAll('#wm-history-table tbody tr');
-  const header = ['Date', 'Meter', 'Value', 'Unit', 'Notes'];
-  const csvRows = [header.map(escapeCsvCell).join(',')];
-  rows.forEach(row => {
-    const cells = row.querySelectorAll('td');
-    csvRows.push([
-      cells[0].textContent.trim(),  // Date
-      cells[1].textContent.trim(),  // Meter
-      cells[2].textContent.trim(),  // Value
-      cells[3].textContent.trim(),  // Unit
-      cells[4].textContent.trim(),  // Notes
-    ].map(escapeCsvCell).join(','));
+function wmFilterReadings(readings, meterName) {
+  if (!meterName) return readings;
+  return readings.filter(r => r.meter === meterName);
+}
+
+function wmApplyMeterFilter(tbody, meterName) {
+  const trs = tbody.querySelectorAll('tr');
+  trs.forEach(tr => {
+    const meterCell = tr.cells[1].textContent.trim();
+    if (!meterName || meterName === meterCell) {
+      tr.style.display = '';
+    } else {
+      tr.style.display = 'none';
+    }
   });
-  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `water-meter-${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+}
+
+function wmGetSelectedMeter() {
+  const select = document.getElementById('meter-filter');
+  return select ? select.value : '';
+}
+```
+
+### Filter change handler
+
+```js
+function wmOnMeterFilterChange(tbody, select) {
+  const meter = select.value;
+  wmState.meterFilter = meter;
+  const allReadings = wmParseReadings(tbody);
+  const filtered = wmFilterReadings(allReadings, meter);
+  wmApplyMeterFilter(tbody, meter);
+  wmUpdateStats(filtered);
+  wmDestroyCharts();
+  wmSetupCharts(filtered);
+  // Re-stripe visible rows
+  const visible = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
+  visible.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
+}
+```
+
+## 6. Interaction with sorting
+
+**Preferred behavior**: The existing `wmSetupSort` sorts the full `<tbody>` by date. After sorting, the current meter filter is re-applied (`wmApplyMeterFilter(tbody, meter)`). This means:
+
+1. Sort moves all rows (including hidden ones) into date order.
+2. Filter hides rows that don't match the selected meter.
+3. Re-stripe only visible rows.
+
+Modify `wmSetupSort` to call `wmApplyMeterFilter` after the sort and re-stripe only visible rows:
+
+```js
+function wmSetupSort(table, tbody) {
+  let sortAsc = false;
+  const dateHeader = table.querySelector('th:first-child');
+  dateHeader.addEventListener('click', () => {
+    sortAsc = !sortAsc;
+    const trs = Array.from(tbody.querySelectorAll('tr'));
+    trs.sort((a, b) => {
+      const da = a.cells[0].textContent.trim();
+      const db = b.cells[0].textContent.trim();
+      return sortAsc ? wmCompareDates(da, db) : wmCompareDates(db, da);
+    });
+    trs.forEach(tr => tbody.appendChild(tr));
+    dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
+    // Re-apply current filter
+    const meter = wmGetSelectedMeter();
+    wmApplyMeterFilter(tbody, meter);
+    // Re-stripe only visible rows
+    const visible = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
+    visible.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
+    // Recalculate stats using filtered+visible readings
+    const allReadings = wmParseReadings(tbody);
+    const filtered = wmFilterReadings(allReadings, meter);
+    wmUpdateStats(filtered);
+  });
+}
+```
+
+## 7. Interaction with stat cards
+
+`wmUpdateStats(filtered)` already works on any array of readings. When the filter changes:
+
+- Readings are parsed from the full `<tbody>`.
+- Filtered by `wmFilterReadings(readings, meter)`.
+- Passed to `wmUpdateStats(filtered)`.
+
+This correctly handles:
+- "All meters" — uses all readings.
+- Specific meter — uses only that meter's readings.
+- Filter with no matching rows — `wmUpdateStats([])` returns early (no update), cards remain at `—`.
+- Filter with one matching row — stat cards show Latest reading but Daily avg shows `—`.
+
+## 8. Interaction with charts
+
+### Chart destruction and recreation
+
+When the filter changes, existing Chart instances must be destroyed before creating new ones, or the charts will display stale data. Since the current code creates charts in `wmSetupCharts` and there's no cleanup, I'll add a `wmDestroyCharts` function:
+
+```js
+function wmDestroyCharts() {
+  if (wmState.chartInstances.readings) {
+    wmState.chartInstances.readings.destroy();
+    wmState.chartInstances.readings = null;
+  }
+  if (wmState.chartInstances.consumption) {
+    wmState.chartInstances.consumption.destroy();
+    wmState.chartInstances.consumption = null;
+  }
+}
+```
+
+And modify `wmSetupCharts` to store instances in the state:
+
+```js
+function wmSetupCharts(readings) {
+  if (typeof Chart === 'undefined' || readings.length < 2) return;
+  const sorted = wmSortReadings(readings);
+  // Chart A
+  const ctx1 = document.getElementById('chart-readings');
+  if (ctx1) {
+    wmState.chartInstances.readings = new Chart(ctx1, { ... });
+  }
+  // Chart B
+  const ctx2 = document.getElementById('chart-consumption');
+  if (ctx2) {
+    wmState.chartInstances.consumption = new Chart(ctx2, { ... });
+  }
+}
+```
+
+When the filter is at `All meters` with fewer than 2 matching readings, `wmSetupCharts` returns without creating charts (no crash).
+
+## 9. Interaction with CSV export
+
+Modify `wmSetupCsvExport` to export only visible `<tr>` elements (rows not hidden by filter). This is already partially handled because the export iterates `tbody.querySelectorAll('tr')` which includes all rows. The fix is to check `tr.style.display`:
+
+```js
+function wmSetupCsvExport(tbody) {
+  document.getElementById('export-csv').addEventListener('click', () => {
+    const trs = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
+    // ...rest unchanged...
+  });
+}
+```
+
+This ensures only visible rows are exported when a meter filter is active.
+
+## 10. Empty-state behavior
+
+### No readings at all
+
+Existing behavior unchanged — `{% if not readings %}` block renders empty state with no stats, no table, no charts, no filter.
+
+### Readings exist but filter has no rows
+
+Since filter options are built from *existing* meter names (from DOM rows), a filter selection will always have at least one row. However, stale filter state could theoretically have zero rows. Code must handle it:
+
+- `wmUpdateStats([])` — returns early (no crash, cards stay at `—`).
+- `wmSetupCharts([])` — returns early (no crash, charts not created).
+- CSV export of zero visible rows — produces header-only CSV (same as existing empty behavior).
+- `wmApplyMeterFilter(tbody, "nonexistent")` — hides all rows (safe).
+
+## 11. Multiple-meter behavior
+
+This PR explicitly addresses multiple meters:
+
+- `All meters` shows all rows and aggregates all data.
+- Per-meter filtering shows and aggregates only that meter's rows.
+- Calculations (this month, daily avg, consumption series) are computed from the filtered data only.
+- Sorting remains stable: all rows are sorted by date, then filter hides non-matching rows.
+- CSV export includes only the selected meter's rows (or all rows when "All meters").
+
+## 12. JavaScript design
+
+All new helper functions at outer script scope with `wm` prefix:
+
+| Function | Purpose |
+|----------|---------|
+| `wmGetDistinctMeters(readings)` | Return sorted unique meter names |
+| `wmPopulateMeterFilter(readings)` | Build `<select>` options from readings |
+| `wmGetSelectedMeter()` | Return current `<select>` value |
+| `wmFilterReadings(readings, meter)` | Return readings filtered by meter |
+| `wmApplyMeterFilter(tbody, meter)` | Set `display` on `<tr>` elements |
+| `wmOnMeterFilterChange(tbody, select)` | Handler run on filter change |
+| `wmDestroyCharts()` | Destroy existing Chart instances |
+
+State object:
+
+```js
+const wmState = {
+  meterFilter: '',
+  chartInstances: { readings: null, consumption: null }
+};
+```
+
+Updated `DOMContentLoaded` orchestrator:
+
+```js
+document.addEventListener('DOMContentLoaded', () => {
+  const table = document.getElementById('wm-history-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  if (tbody.querySelectorAll('tr').length === 0) return;
+  const readings = wmParseReadings(tbody);
+  wmPopulateMeterFilter(readings);
+  wmUpdateStats(readings);
+  wmSetupSort(table, tbody);
+  wmSetupCharts(readings);
+  wmSetupCsvExport(tbody);
+  // Attach filter change handler
+  const select = document.getElementById('meter-filter');
+  if (select) {
+    select.addEventListener('change', () => wmOnMeterFilterChange(tbody, select));
+  }
 });
 ```
 
-- Download filename: `water-meter-YYYY-MM-DD.csv`.
-- Proper CSV escaping via `escapeCsvCell` helper.
-- Empty-state: export produces a header-only CSV (Date,Meter,Value,Unit,Notes with no data rows).
-
-## 8. Empty-state behavior
-
-When `readings` is empty:
-
-- The existing `{% if not readings %}` block renders the empty state.
-- Stat cards are not rendered (they would have no data).
-- Charts are not rendered (no canvas to draw).
-- CSV export button is still present — clicking it produces a header-only CSV.
-- Sorting is a no-op (no rows to sort).
-- "← Add another reading" link is still present (it's outside the `{% else %}` block).
-
-Implementation: wrap the stat cards, table (with sort), charts, and CSV button in the `{% else %}` block so they only appear when readings exist. The CSV button goes inside the else block (no point exporting empty data).
-
-## 9. Multiple-meter behavior
-
-The current Water Meter UI supports multiple meter names (`meter_name` field with datalist). The `readings` list may contain entries for different meters.
-
-**MVP approach**: Use all visible table rows as rendered. No meter filtering. Stat cards and charts aggregate across all meters. This is consistent and simple. Document that aggregation is based on visible table rows.
-
-If meter-specific stats are needed in a future PR, the frontend can filter rows by the Meter column.
-
-## 10. JavaScript design
-
-All JS in `{% block extra_scripts %}` at the bottom of `history.html`. Functions:
-
-```javascript
-function parseReadingsFromDOM() { /* returns array of {date, meter, value, unit, notes} */ }
-function calculateStats(readings) { /* updates stat card textContent */ }
-function setupSort() { /* click handler on Date header */ }
-function setupCharts(readings) { /* Chart.js init if Chart defined and rows >= 2 */ }
-function setupCsvExport() { /* click handler on Export CSV button */ }
-```
-
-All wrapped in `document.addEventListener('DOMContentLoaded', () => { ... })`.
-
-## 11. Tests / validation
-
-### Frontend presence tests (in `tests/test_water_meter_routes.py`)
-
-These tests check that the rendered HTML includes the new elements:
-
-1. History page renders with existing readings → still returns 200.
-2. Stat card labels (`Latest reading`, `This month`, `Daily avg`) are present in HTML when readings exist.
-3. `Export CSV` button (`id="export-csv"`) is present when readings exist.
-4. Chart containers (`id="chart-readings"`, `id="chart-consumption"`) are present when readings exist.
-5. Empty history page does not crash and still shows empty state (no cards, no charts).
-
-### Backward compatibility tests (still pass)
-
-6. No backend route response shape changes → existing Water Meter tests pass.
-7. Existing auth/ownership tests still pass.
-8. Full test suite passes.
-
-## 12. Risks and mitigations
+## 13. SonarCloud risk mitigation
 
 | Risk | Mitigation |
 |------|------------|
-| Chart.js CDN availability | Follows existing Bulma CDN pattern; app remains functional without charts (degraded gracefully) |
-| SRI hash mismatch if CDN file changes | Pin exact version; compute SRI at implementation time |
-| Chart.js library adds ~1MB to page | Loaded async/defer; only affects history page; no impact on form or result pages |
-| Sort breaks alternating stripe style | Re-applied via JS after every sort operation |
-| Negative consumption values | Clamped to 0 for display; actual values unaffected |
-| Multiple meters mixed in same chart | Documented MVP behavior — all rows aggregated; future PR can add meter filter |
-| Browser lacks Chart.js support | Canvas not rendered; CSV export and stat cards still work (pure DOM/JS) |
+| Nested functions inside `DOMContentLoaded` | All helpers at outer scope with `wm` prefix |
+| High cognitive complexity | Each helper handles one concern; `wmOnMeterFilterChange` orchestrates five simple calls |
+| `parseInt`/`parseFloat` | Already using `Number.parseInt`/`Number.parseFloat` consistently |
+| `replace` vs `replaceAll` | Already using `replaceAll` in `wmEscapeCsvCell` |
+| Stale Chart.js instances causing memory leaks | `wmDestroyCharts` called before every `wmSetupCharts` invocation |
+| Chart.js SRI | Already verified and pinned; no changes to the CDN script tag |
 
-## 13. What must not change
+## 14. Tests (in `tests/test_water_meter_routes.py`)
+
+Add the following frontend presence tests:
+
+1. Meter filter `<select>` element (`id="meter-filter"`) is present when readings exist.
+2. "All meters" option is present in the meter filter.
+3. Distinct meter names from readings appear as filter options (e.g., create two readings with different meters and check both names appear in the rendered HTML).
+4. Empty history page does NOT contain `id="meter-filter"` (filter only rendered inside `{% else %}` block).
+5. Existing stat card labels still render.
+6. Existing export CSV button still renders.
+7. Existing chart canvases still render.
+8. Existing `← Add another reading` link remains.
+9. All existing Water Meter route tests still pass.
+10. All existing auth/ownership tests still pass.
+
+## 15. Risks and mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Stale Chart.js instances after filter change | `wmDestroyCharts` called before `wmSetupCharts` |
+| Filter + sort interaction complex | Sort moves all rows, filter hides — simple separation of concerns |
+| CSV export includes hidden rows | `wmSetupCsvExport` filters to visible rows only |
+| Multiple meters with same date values | Date sorting and filter apply independently; stable by table order |
+| Filter select options stale after delete | `wmPopulateMeterFilter` called on `DOMContentLoaded` only; user must refresh page after delete (same as existing behavior) |
+
+## 16. What must not change
 
 - Backend route: `GET /water-meter/history` — no changes.
-- Backend route handler: `water_meter_history()` — no changes.
+- Backend handler: `water_meter_history()` — no changes.
 - Storage functions or schemas — no changes.
 - SQLite — no migration.
 - DynamoDB — no changes.
 - Auth/ownership behavior — no changes.
 - JSON response shapes — no changes.
-- Existing test suite — must still pass.
 - Broken Clock templates — no changes.
-- Layout template (`_layout.html`) — no changes (charts loaded in `extra_scripts` block).
+- Layout template (`_layout.html`) — no changes.
+- Chart.js CDN URL or SRI — no changes.
+- Existing `wm*` helper function signatures — only add new ones.
+- Existing stat card, chart, CSV, and sort behavior for "All meters" (default state).
 
-## 14. Open questions
+## 17. Open questions
 
-- **SRI hash for Chart.js**: Must be computed at implementation time using the actual file from `cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js`. Plan to add it with `integrity` attribute.
+- **Should the meter filter appear only when multiple meters exist?** For simplicity, the `<select>` always appears when readings exist, even if only one meter is present (showing only "All meters" and that one option). This keeps the HTML structure predictable for tests.
 
-- **Dynamic chart resize on viewport change**: For MVP, charts use `responsive: true` in Chart.js config, which handles resize automatically.
+- **Should deleting a row update the filter options?** No — the select is populated on page load. User must refresh the page after deleting. This matches existing behavior (table rows persist until page refresh).
 
-- **Zero-consumption edge case**: If all readings are the same value (no consumption), bars show as 0 height and daily avg shows `0.00 m³/d`. This is correct behavior.
-
-## 15. Validation commands
+## 18. Validation commands
 
 ```bash
 python -m pytest -q
 python -W error::ResourceWarning -m pytest -q
 ```
 
-## 16. Rollback notes
+## 19. Rollback notes
 
-1. Revert `app/templates/water_meter/history.html` to its previous version.
+1. Revert `app/templates/water_meter/history.html` to the version before adding meter filter.
 2. Revert test additions in `tests/test_water_meter_routes.py`.
 3. No database, backend, or configuration changes to revert.
