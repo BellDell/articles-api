@@ -12,7 +12,10 @@
     padding: 8px 4px 10px;
     text-align: left;
     border-bottom: 1px solid var(--bc-border);
+    cursor: default;
   }
+  .wm-table th.sortable { cursor: pointer; user-select: none; }
+  .wm-table th.sortable:hover { color: var(--bc-accent); }
   .wm-table td {
     padding: 10px 4px;
     border-bottom: 1px solid var(--bc-border);
@@ -24,6 +27,39 @@
 
   .empty-state { text-align:center; padding:2.5rem 0; color: var(--bc-text-muted); }
   .empty-state a { color: var(--bc-accent); }
+
+  /* Stat cards */
+  .stat-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat-card {
+    flex: 1; min-width: 120px;
+    background: var(--bc-bg-subtle);
+    border: 1px solid var(--bc-border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .stat-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--bc-text-muted); margin-bottom: 4px;
+  }
+  .stat-value {
+    font-size: 18px; font-weight: 700; color: var(--bc-accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Chart containers */
+  .chart-row { display: flex; gap: 16px; margin-top: 24px; flex-wrap: wrap; }
+  .chart-box {
+    flex: 1; min-width: 280px;
+    background: var(--bc-bg-surface);
+    border: 1px solid var(--bc-border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .chart-title {
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--bc-text-muted); margin: 0 0 10px;
+  }
 {% endblock %}
 
 {% block content %}
@@ -39,10 +75,25 @@
         </p>
       </div>
     {% else %}
-      <table class="wm-table">
+      <div id="wm-stats" class="stat-row">
+        <div class="stat-card">
+          <div class="stat-label">Latest reading</div>
+          <div class="stat-value" id="stat-latest">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">This month</div>
+          <div class="stat-value" id="stat-month">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Daily avg</div>
+          <div class="stat-value" id="stat-daily">—</div>
+        </div>
+      </div>
+
+      <table id="wm-history-table" class="wm-table">
         <thead>
           <tr>
-            <th>Date</th>
+            <th class="sortable">Date ▼</th>
             <th>Meter</th>
             <th>Value</th>
             <th>Unit</th>
@@ -71,9 +122,241 @@
       <p style="color:var(--bc-text-muted);font-size:12px;margin-top:12px">
         Showing latest {{ readings|length }} readings, newest first.
       </p>
+
+      <div class="chart-row">
+        <div class="chart-box">
+          <h3 class="chart-title">Meter readings over time</h3>
+          <canvas id="chart-readings" style="height:200px"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3 class="chart-title">Consumption per period (m³)</h3>
+          <canvas id="chart-consumption" style="height:200px"></canvas>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+        <button id="export-csv" class="bc-btn-ghost" style="font-size:13px">Export CSV</button>
+      </div>
+
     {% endif %}
 
     <a class="bc-btn-ghost" href="/water-meter" style="margin-top:16px">← Add another reading</a>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer crossorigin="anonymous"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const table = document.getElementById('wm-history-table');
+  if (!table) return;
+
+  const tbody = table.querySelector('tbody');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  if (rows.length === 0) return;
+
+  // ---- Helpers ----
+  function parseDate(s) {
+    const parts = s.trim().split('-');
+    if (parts.length !== 3) return null;
+    return { y: parseInt(parts[0], 10), m: parseInt(parts[1], 10), d: parseInt(parts[2], 10) };
+  }
+
+  function dateToKey(d) { return d.y * 10000 + d.m * 100 + d.d; }
+
+  function daysBetween(start, end) {
+    const msPerDay = 24 * 60 * 60 * 1000;
+    return Math.round((new Date(end.y, end.m - 1, end.d) - new Date(start.y, start.m - 1, start.d)) / msPerDay);
+  }
+
+  function compareDates(a, b) {
+    return dateToKey(parseDate(a)) - dateToKey(parseDate(b));
+  }
+
+  function formatVal(v) { return v.toFixed(2); }
+
+  // ---- Read data from DOM ----
+  function parseReadings() {
+    const trs = Array.from(tbody.querySelectorAll('tr'));
+    return trs.map(tr => {
+      const cells = tr.querySelectorAll('td');
+      return {
+        date:      cells[0].textContent.trim(),
+        meter:     cells[1].textContent.trim(),
+        value:     parseFloat(cells[2].textContent.trim()),
+        unit:      cells[3].textContent.trim(),
+        notes:     cells[4].textContent.trim(),
+      };
+    });
+  }
+
+  // ---- Stat cards ----
+  function calculateStats() {
+    const readings = parseReadings();
+    if (readings.length === 0) return;
+
+    readings.sort((a, b) => compareDates(b.date, a.date));
+    const unit = readings[0].unit || 'm³';
+
+    // Latest reading
+    document.getElementById('stat-latest').textContent = formatVal(readings[0].value) + ' ' + unit;
+
+    // This month
+    const now = new Date();
+    const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const monthReadings = readings.filter(r => r.date.startsWith(thisMonth)).sort((a, b) => compareDates(a.date, b.date));
+    let monthConsumption = 0;
+    for (let i = 1; i < monthReadings.length; i++) {
+      const diff = monthReadings[i].value - monthReadings[i - 1].value;
+      if (diff > 0) monthConsumption += diff;
+    }
+    document.getElementById('stat-month').textContent = (monthReadings.length >= 2 ? '+' + formatVal(monthConsumption) + ' ' + unit : '—');
+
+    // Daily avg
+    const sortedAsc = [...readings].sort((a, b) => compareDates(a.date, b.date));
+    if (sortedAsc.length >= 2) {
+      let totalConsumption = 0;
+      for (let i = 1; i < sortedAsc.length; i++) {
+        const diff = sortedAsc[i].value - sortedAsc[i - 1].value;
+        if (diff > 0) totalConsumption += diff;
+      }
+      const firstDate = parseDate(sortedAsc[0].date);
+      const lastDate = parseDate(sortedAsc[sortedAsc.length - 1].date);
+      if (firstDate && lastDate) {
+        const daySpan = daysBetween(firstDate, lastDate);
+        if (daySpan > 0) {
+          document.getElementById('stat-daily').textContent = formatVal(totalConsumption / daySpan) + ' ' + unit + '/d';
+        }
+      }
+    }
+  }
+
+  // ---- Date sorting ----
+  let sortAsc = false;
+  const dateHeader = table.querySelector('th:first-child');
+  dateHeader.addEventListener('click', () => {
+    sortAsc = !sortAsc;
+    const trs = Array.from(tbody.querySelectorAll('tr'));
+    trs.sort((a, b) => {
+      const da = a.cells[0].textContent.trim();
+      const db = b.cells[0].textContent.trim();
+      return sortAsc ? compareDates(da, db) : compareDates(db, da);
+    });
+    trs.forEach(tr => tbody.appendChild(tr));
+    dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
+    // Re-stripe
+    trs.forEach((tr, i) => {
+      tr.style.background = i % 2 === 1 ? '#f8f6f2' : '';
+    });
+    calculateStats();
+  });
+
+  // ---- Charts ----
+  function setupCharts() {
+    if (typeof Chart === 'undefined') return;
+    const readings = parseReadings();
+    if (readings.length < 2) return;
+
+    const sortedAsc = readings.slice().sort((a, b) => compareDates(a.date, b.date));
+
+    // Chart A: readings over time (line)
+    const ctx1 = document.getElementById('chart-readings');
+    if (ctx1) {
+      new Chart(ctx1, {
+        type: 'line',
+        data: {
+          labels: sortedAsc.map(r => r.date),
+          datasets: [{
+            label: 'Reading value',
+            data: sortedAsc.map(r => r.value),
+            borderColor: '#c2410c',
+            backgroundColor: '#c2410c22',
+            fill: true,
+            tension: 0.2,
+            pointRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
+            y: { beginAtZero: false, ticks: { font: { size: 11 } } }
+          }
+        }
+      });
+    }
+
+    // Chart B: consumption per period (bar)
+    const ctx2 = document.getElementById('chart-consumption');
+    if (ctx2) {
+      const labels = [];
+      const consumption = [];
+      for (let i = 1; i < sortedAsc.length; i++) {
+        const diff = sortedAsc[i].value - sortedAsc[i - 1].value;
+        labels.push(sortedAsc[i].date);
+        consumption.push(diff > 0 ? diff : 0);
+      }
+      new Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Consumption',
+            data: consumption,
+            backgroundColor: '#c2410c',
+            borderRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
+            y: { beginAtZero: true, ticks: { font: { size: 11 } } }
+          }
+        }
+      });
+    }
+  }
+
+  // ---- CSV export ----
+  function escapeCsvCell(value) {
+    const s = String(value);
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+
+  document.getElementById('export-csv').addEventListener('click', () => {
+    const trs = tbody.querySelectorAll('tr');
+    const header = ['Date', 'Meter', 'Value', 'Unit', 'Notes'];
+    const csvRows = [header.map(escapeCsvCell).join(',')];
+    trs.forEach(tr => {
+      const cells = tr.querySelectorAll('td');
+      csvRows.push([
+        cells[0].textContent.trim(),
+        cells[1].textContent.trim(),
+        cells[2].textContent.trim(),
+        cells[3].textContent.trim(),
+        cells[4].textContent.trim(),
+      ].map(escapeCsvCell).join(','));
+    });
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'water-meter-' + new Date().toISOString().split('T')[0] + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ---- Init ----
+  calculateStats();
+  setupCharts();
+});
+</script>
 {% endblock %}
