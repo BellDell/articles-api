@@ -15,7 +15,8 @@
       <div style="margin-bottom:16px">
         <label class="bc-label" for="reading_date">Reading date</label>
         <input id="reading_date" name="reading_date" class="bc-input" type="date"
-               value="{{ request.args.get('reading_date', default_reading_date) }}" autocomplete="off">
+               value="{{ request.args.get('reading_date', default_reading_date) }}"
+               max="{{ default_reading_date }}" autocomplete="off">
       </div>
 
       <div style="margin-bottom:16px">

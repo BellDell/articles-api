@@ -1,430 +1,200 @@
-# Plan: Water Meter per-meter filtering for history analytics
+# Plan: Reject future Water Meter readings
 
 ## 1. Objective
 
-Add frontend-only per-meter filtering to the Water Meter history page. Users can filter the table, stat cards, charts, and CSV export by a specific meter name or see all meters. No backend changes.
+Reject Water Meter readings whose `reading_date` is in the future. Server-side validation is authoritative. A convenience `max` attribute is added to the form's date input.
 
 ## 2. Current state (verified from disk)
 
-### Route
+### Create route
 
-- **GET** `/water-meter/history` → endpoint `water_meter_history`
-- Template: `app/templates/water_meter/history.html`
+- **POST** `/water-meter/readings` → endpoint `water_meter_add_reading`
+- Handler: `water_meter_add_reading()` in `app/routes.py`
+- Calls `validate_reading()` from `app/water_meter/domain.py`, then `wm_storage.save_reading()` if validation passes
 
-### Existing DOM structure
+### Validation path (`validate_reading` in `app/water_meter/domain.py`)
 
-```html
-<div id="wm-stats" class="stat-row">
-  <div class="stat-card"><div class="stat-label">Latest reading</div>...</div>
-  <div class="stat-card"><div class="stat-label">This month</div>...</div>
-  <div class="stat-card"><div class="stat-label">Daily avg</div>...</div>
-</div>
+Checks:
+- `reading_value` — required, numeric, non-negative
+- `reading_date` — required, must match `^\d{4}-\d{2}-\d{2}$` (YYYY-MM-DD format)
 
-<table id="wm-history-table" class="wm-table">
-  <thead>
-    <tr>
-      <th class="sortable">Date ▼</th>
-      <th>Meter</th>
-      <th>Value</th>
-      <th>Unit</th>
-      <th>Notes</th>
-      <th></th>  <!-- delete -->
-    </tr>
-  </thead>
-  <tbody>
-    {% for r in readings %}
-    <tr>
-      <td>{{ r.reading_date }}</td>
-      <td>{{ r.meter_name }}</td>
-      <td class="col-val">{{ r.reading_value }}</td>
-      <td>{{ r.unit }}</td>
-      <td class="col-note">{{ r.notes }}</td>
-      <td>...delete form...</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+No date-range validation (current date vs reading date) exists today.
 
-<!-- charts, export CSV button -->
+### Form template
+
+- `app/templates/water_meter/form.html`
+- `<input type="date" name="reading_date" id="reading_date">`
+- No `max` attribute today.
+- Default value: `default_reading_date` = today (set in `water_meter_form()` handler).
+
+### Invalid-input behavior
+
+- **JSON**: Returns `{"error": "..."}` with HTTP 400.
+- **HTML form**: Redirects to `/water-meter?error=...&reading_date=...&meter_name=...&unit=...&notes=...`.
+- Error messages come from `validate_reading()` error dict values.
+
+### Flow
+
+```
+water_meter_add_reading()
+  → validate_reading(reading_value, reading_date, ...)
+    → if errors: return error (JSON 400 or HTML redirect)
+  → rate limit check
+  → wm_storage.save_reading(...)  ← future date would be stored today
+  → return success
 ```
 
-### Existing JS helper functions (outer scope, `wm`-prefixed)
+### Existing tests (relevant subset)
 
-- `wmParseDate`, `wmDateToKey`, `wmDaysBetween`, `wmCompareDates`, `wmFormatVal`, `wmEscapeCsvCell`
-- `wmParseReadings(tbody)` — returns `[{date, meter, value, unit, notes}]`
-- `wmSortReadings(readings)` — sorted by date ascending
-- `wmCalculateTotalConsumption(readings)` — sum positive diffs
-- `wmUpdateStats(readings)` — updates stat card textContent
-- `wmBuildConsumptionSeries(readings)` — builds chart B data
-- `wmSetupCharts(readings)` — creates Chart.js instances
-- `wmSetupCsvExport(tbody)` — click handler for export
-- `wmSetupSort(table, tbody)` — click handler for date header
-
-### DOMContentLoaded orchestrator
-
-```js
-document.addEventListener('DOMContentLoaded', () => {
-  ...
-  const readings = wmParseReadings(tbody);
-  wmUpdateStats(readings);
-  wmSetupSort(table, tbody);
-  wmSetupCharts(readings);
-  wmSetupCsvExport(tbody);
-});
-```
-
-### Existing tests
-
-In `tests/test_water_meter_routes.py`: 7 frontend presence tests for table ID, stat card labels, export CSV button, chart canvases, empty state, add reading link, sort indicator.
+- `test_valid_html_post_redirects` — posts "2026-06-01" (past)
+- `test_valid_json_post_returns_201` — posts "2026-06-01" (past)
+- `test_invalid_date_redirects_with_error` — posts "bad-date"
+- `test_invalid_json_post_returns_400` — posts non-numeric value
 
 ## 3. Files likely to change
 
 | File | Change |
 |------|--------|
-| `app/templates/water_meter/history.html` | Add meter filter `<select>` control, new JS filter helpers, update orchestrator and CSV export to respect filtering |
-| `tests/test_water_meter_routes.py` | Add frontend presence tests for meter filter control |
+| `app/water_meter/domain.py` | Add future-date check to `validate_reading()` |
+| `app/templates/water_meter/form.html` | Add `max="{{ today }}"` to the date input |
+| `tests/test_water_meter_routes.py` | Add future-date rejection tests |
 
-## 4. Proposed meter filter UI design
+## 4. Proposed backend validation design
 
-Add a `<select>` control between the stat cards and the table, styled to match the existing app look:
+### Add validation in `validate_reading()` (`app/water_meter/domain.py`)
+
+After the existing regex format check, add:
+
+```python
+from datetime import date as _date
+
+if not errors.get("reading_date"):
+    try:
+        parsed = _date.fromisoformat(reading_date.strip())
+        if parsed > _date.today():
+            errors["reading_date"] = "Reading date cannot be in the future."
+    except ValueError:
+        # Should not happen since regex already validated format,
+        # but guard against edge cases.
+        pass
+```
+
+### Import
+
+`from datetime import date` already exists in `app/routes.py`. The `app/water_meter/domain.py` needs a new import: `from datetime import date`.
+
+### Where validation lives
+
+The existing `validate_reading()` already validates `reading_date` format. Adding a date-range check here is consistent with current project patterns (validation in domain layer, not in routes or storage). No changes to storage or routes.
+
+### What stays the same
+
+- No changes to `app/routes.py` (route handler).
+- No changes to storage layer.
+- No changes to response format (JSON 400 / HTML redirect with error message preserved).
+- Error message key is `"reading_date"`, same as the format error. Multiple `reading_date` errors are possible (e.g., both format and future-date). The existing handler joins errors with `"; "`:
+
+  ```python
+  msg = "; ".join(errors.values())
+  ```
+
+  This means a format-invalid + future-date submission would show the format error only (since `fromisoformat` is called only if format check passes). The order of checks is:
+  1. Missing reading_date → error
+  2. Invalid format (regex) → error
+  3. Future date (only if format passes) → error
+
+  If format passes but date is future, the only error is "Reading date cannot be in the future."
+
+## 5. Proposed UX `max` attribute design
+
+In `app/templates/water_meter/form.html`, the `water_meter_form()` handler already passes `default_reading_date` (today). Add the `max` attribute:
 
 ```html
-<div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-  <label class="bc-label" for="meter-filter" style="margin-bottom:0">Meter</label>
-  <select id="meter-filter" class="bc-input" style="width:auto;min-width:160px;padding:6px 10px;font-size:13px">
-    <option value="">All meters</option>
-  </select>
-</div>
+<input id="reading_date" name="reading_date" class="bc-input" type="date"
+       value="{{ request.args.get('reading_date', default_reading_date) }}"
+       max="{{ default_reading_date }}" autocomplete="off">
 ```
 
-CSS added to `{% block extra_style %}`:
+No changes needed to the route handler — `default_reading_date` is already `datetime.now().strftime("%Y-%m-%d")`.
 
-```css
-#meter-filter { cursor: pointer; }
+This is a browser-side convenience only. Server-side validation remains authoritative.
+
+## 6. Proposed error response behavior
+
+### JSON path
+
+```json
+HTTP 400
+{"error": "Reading date cannot be in the future."}
 ```
 
-The select options are built dynamically from the DOM table rows using `wmGetDistinctMeters(readings)`.
+### HTML form path
 
-## 5. Proposed filtering algorithm
+Redirect to `/water-meter?error=Reading date cannot be in the future.&reading_date=2099-12-31&...`
 
-### State object
+This matches the existing invalid-input behavior pattern (redirect with query params).
 
-Introduce a state object to track the current filter and avoid global variables:
+## 7. Ownership/auth
 
-```js
-const wmState = { meterFilter: null, chartInstances: { readings: null, consumption: null } };
-```
+No changes. The future-date check happens before storage, after authentication. Auth/ownership flow is untouched.
 
-### Helper functions (outer scope, `wm`-prefixed)
+## 8. Code quality
 
-```js
-function wmGetDistinctMeters(readings) {
-  const meters = new Set(readings.map(r => r.meter));
-  return Array.from(meters).sort();
-}
+- Validation addition is ~8 lines (under 20 line limit).
+- No increase to cognitive complexity of `water_meter_add_reading()` (it already delegates to `validate_reading`).
+- No nested functions.
+- No changes to route handler length.
 
-function wmPopulateMeterFilter(readings) {
-  const select = document.getElementById('meter-filter');
-  if (!select) return;
-  // Keep first option "All meters", remove others
-  select.innerHTML = '<option value="">All meters</option>';
-  const meters = wmGetDistinctMeters(readings);
-  meters.forEach(m => {
-    const opt = document.createElement('option');
-    opt.value = m;
-    opt.textContent = m;
-    select.appendChild(opt);
-  });
-  // Restore previously selected value (if any)
-  if (wmState.meterFilter) {
-    select.value = wmState.meterFilter;
-  }
-}
+## 9. Tests (in `tests/test_water_meter_routes.py`)
 
-function wmFilterReadings(readings, meterName) {
-  if (!meterName) return readings;
-  return readings.filter(r => r.meter === meterName);
-}
+1. `test_future_date_json_rejected` — POST with future date (JSON) returns 400 and "Reading date cannot be in the future."
+2. `test_future_date_html_rejected` — POST with future date (form) redirects with error query param.
+3. `test_future_date_not_saved` — POST with future date, then check history is empty.
+4. `test_today_date_accepted` — POST with today's date (JSON) returns 201.
+5. `test_past_date_accepted` — POST with past date (JSON) returns 201 (already covered by existing tests, kept for clarity).
+6. `test_form_date_input_has_max` — GET form page includes `max="YYYY-MM-DD"` attribute.
+7. All existing Water Meter route tests still pass.
 
-function wmApplyMeterFilter(tbody, meterName) {
-  const trs = tbody.querySelectorAll('tr');
-  trs.forEach(tr => {
-    const meterCell = tr.cells[1].textContent.trim();
-    if (!meterName || meterName === meterCell) {
-      tr.style.display = '';
-    } else {
-      tr.style.display = 'none';
-    }
-  });
-}
-
-function wmGetSelectedMeter() {
-  const select = document.getElementById('meter-filter');
-  return select ? select.value : '';
-}
-```
-
-### Filter change handler
-
-```js
-function wmOnMeterFilterChange(tbody, select) {
-  const meter = select.value;
-  wmState.meterFilter = meter;
-  const allReadings = wmParseReadings(tbody);
-  const filtered = wmFilterReadings(allReadings, meter);
-  wmApplyMeterFilter(tbody, meter);
-  wmUpdateStats(filtered);
-  wmDestroyCharts();
-  wmSetupCharts(filtered);
-  // Re-stripe visible rows
-  const visible = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
-  visible.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
-}
-```
-
-## 6. Interaction with sorting
-
-**Preferred behavior**: The existing `wmSetupSort` sorts the full `<tbody>` by date. After sorting, the current meter filter is re-applied (`wmApplyMeterFilter(tbody, meter)`). This means:
-
-1. Sort moves all rows (including hidden ones) into date order.
-2. Filter hides rows that don't match the selected meter.
-3. Re-stripe only visible rows.
-
-Modify `wmSetupSort` to call `wmApplyMeterFilter` after the sort and re-stripe only visible rows:
-
-```js
-function wmSetupSort(table, tbody) {
-  let sortAsc = false;
-  const dateHeader = table.querySelector('th:first-child');
-  dateHeader.addEventListener('click', () => {
-    sortAsc = !sortAsc;
-    const trs = Array.from(tbody.querySelectorAll('tr'));
-    trs.sort((a, b) => {
-      const da = a.cells[0].textContent.trim();
-      const db = b.cells[0].textContent.trim();
-      return sortAsc ? wmCompareDates(da, db) : wmCompareDates(db, da);
-    });
-    trs.forEach(tr => tbody.appendChild(tr));
-    dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
-    // Re-apply current filter
-    const meter = wmGetSelectedMeter();
-    wmApplyMeterFilter(tbody, meter);
-    // Re-stripe only visible rows
-    const visible = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
-    visible.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
-    // Recalculate stats using filtered+visible readings
-    const allReadings = wmParseReadings(tbody);
-    const filtered = wmFilterReadings(allReadings, meter);
-    wmUpdateStats(filtered);
-  });
-}
-```
-
-## 7. Interaction with stat cards
-
-`wmUpdateStats(filtered)` already works on any array of readings. When the filter changes:
-
-- Readings are parsed from the full `<tbody>`.
-- Filtered by `wmFilterReadings(readings, meter)`.
-- Passed to `wmUpdateStats(filtered)`.
-
-This correctly handles:
-- "All meters" — uses all readings.
-- Specific meter — uses only that meter's readings.
-- Filter with no matching rows — `wmUpdateStats([])` returns early (no update), cards remain at `—`.
-- Filter with one matching row — stat cards show Latest reading but Daily avg shows `—`.
-
-## 8. Interaction with charts
-
-### Chart destruction and recreation
-
-When the filter changes, existing Chart instances must be destroyed before creating new ones, or the charts will display stale data. Since the current code creates charts in `wmSetupCharts` and there's no cleanup, I'll add a `wmDestroyCharts` function:
-
-```js
-function wmDestroyCharts() {
-  if (wmState.chartInstances.readings) {
-    wmState.chartInstances.readings.destroy();
-    wmState.chartInstances.readings = null;
-  }
-  if (wmState.chartInstances.consumption) {
-    wmState.chartInstances.consumption.destroy();
-    wmState.chartInstances.consumption = null;
-  }
-}
-```
-
-And modify `wmSetupCharts` to store instances in the state:
-
-```js
-function wmSetupCharts(readings) {
-  if (typeof Chart === 'undefined' || readings.length < 2) return;
-  const sorted = wmSortReadings(readings);
-  // Chart A
-  const ctx1 = document.getElementById('chart-readings');
-  if (ctx1) {
-    wmState.chartInstances.readings = new Chart(ctx1, { ... });
-  }
-  // Chart B
-  const ctx2 = document.getElementById('chart-consumption');
-  if (ctx2) {
-    wmState.chartInstances.consumption = new Chart(ctx2, { ... });
-  }
-}
-```
-
-When the filter is at `All meters` with fewer than 2 matching readings, `wmSetupCharts` returns without creating charts (no crash).
-
-## 9. Interaction with CSV export
-
-Modify `wmSetupCsvExport` to export only visible `<tr>` elements (rows not hidden by filter). This is already partially handled because the export iterates `tbody.querySelectorAll('tr')` which includes all rows. The fix is to check `tr.style.display`:
-
-```js
-function wmSetupCsvExport(tbody) {
-  document.getElementById('export-csv').addEventListener('click', () => {
-    const trs = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
-    // ...rest unchanged...
-  });
-}
-```
-
-This ensures only visible rows are exported when a meter filter is active.
-
-## 10. Empty-state behavior
-
-### No readings at all
-
-Existing behavior unchanged — `{% if not readings %}` block renders empty state with no stats, no table, no charts, no filter.
-
-### Readings exist but filter has no rows
-
-Since filter options are built from *existing* meter names (from DOM rows), a filter selection will always have at least one row. However, stale filter state could theoretically have zero rows. Code must handle it:
-
-- `wmUpdateStats([])` — returns early (no crash, cards stay at `—`).
-- `wmSetupCharts([])` — returns early (no crash, charts not created).
-- CSV export of zero visible rows — produces header-only CSV (same as existing empty behavior).
-- `wmApplyMeterFilter(tbody, "nonexistent")` — hides all rows (safe).
-
-## 11. Multiple-meter behavior
-
-This PR explicitly addresses multiple meters:
-
-- `All meters` shows all rows and aggregates all data.
-- Per-meter filtering shows and aggregates only that meter's rows.
-- Calculations (this month, daily avg, consumption series) are computed from the filtered data only.
-- Sorting remains stable: all rows are sorted by date, then filter hides non-matching rows.
-- CSV export includes only the selected meter's rows (or all rows when "All meters").
-
-## 12. JavaScript design
-
-All new helper functions at outer script scope with `wm` prefix:
-
-| Function | Purpose |
-|----------|---------|
-| `wmGetDistinctMeters(readings)` | Return sorted unique meter names |
-| `wmPopulateMeterFilter(readings)` | Build `<select>` options from readings |
-| `wmGetSelectedMeter()` | Return current `<select>` value |
-| `wmFilterReadings(readings, meter)` | Return readings filtered by meter |
-| `wmApplyMeterFilter(tbody, meter)` | Set `display` on `<tr>` elements |
-| `wmOnMeterFilterChange(tbody, select)` | Handler run on filter change |
-| `wmDestroyCharts()` | Destroy existing Chart instances |
-
-State object:
-
-```js
-const wmState = {
-  meterFilter: '',
-  chartInstances: { readings: null, consumption: null }
-};
-```
-
-Updated `DOMContentLoaded` orchestrator:
-
-```js
-document.addEventListener('DOMContentLoaded', () => {
-  const table = document.getElementById('wm-history-table');
-  if (!table) return;
-  const tbody = table.querySelector('tbody');
-  if (tbody.querySelectorAll('tr').length === 0) return;
-  const readings = wmParseReadings(tbody);
-  wmPopulateMeterFilter(readings);
-  wmUpdateStats(readings);
-  wmSetupSort(table, tbody);
-  wmSetupCharts(readings);
-  wmSetupCsvExport(tbody);
-  // Attach filter change handler
-  const select = document.getElementById('meter-filter');
-  if (select) {
-    select.addEventListener('change', () => wmOnMeterFilterChange(tbody, select));
-  }
-});
-```
-
-## 13. SonarCloud risk mitigation
+## 10. Risks and mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| Nested functions inside `DOMContentLoaded` | All helpers at outer scope with `wm` prefix |
-| High cognitive complexity | Each helper handles one concern; `wmOnMeterFilterChange` orchestrates five simple calls |
-| `parseInt`/`parseFloat` | Already using `Number.parseInt`/`Number.parseFloat` consistently |
-| `replace` vs `replaceAll` | Already using `replaceAll` in `wmEscapeCsvCell` |
-| Stale Chart.js instances causing memory leaks | `wmDestroyCharts` called before every `wmSetupCharts` invocation |
-| Chart.js SRI | Already verified and pinned; no changes to the CDN script tag |
+| Server clock skew causing legitimate near-future dates to be rejected | Unlikely for user-entered dates; `date.today()` uses UTC-agnostic local date on the server (consistent with how dates are stored) |
+| Timezone difference between user and server | The `reading_date` is a date (YYYY-MM-DD), not a datetime. No timezone context. `date.today()` on the server is the authoritative reference |
+| Browser `max` attribute bypassed via curl/API | Server-side validation in `validate_reading()` is authoritative; `max` is only a UX convenience |
+| `date` import in domain.py | Standard library, no risk |
 
-## 14. Tests (in `tests/test_water_meter_routes.py`)
+## 11. What must not change
 
-Add the following frontend presence tests:
-
-1. Meter filter `<select>` element (`id="meter-filter"`) is present when readings exist.
-2. "All meters" option is present in the meter filter.
-3. Distinct meter names from readings appear as filter options (e.g., create two readings with different meters and check both names appear in the rendered HTML).
-4. Empty history page does NOT contain `id="meter-filter"` (filter only rendered inside `{% else %}` block).
-5. Existing stat card labels still render.
-6. Existing export CSV button still renders.
-7. Existing chart canvases still render.
-8. Existing `← Add another reading` link remains.
-9. All existing Water Meter route tests still pass.
-10. All existing auth/ownership tests still pass.
-
-## 15. Risks and mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Stale Chart.js instances after filter change | `wmDestroyCharts` called before `wmSetupCharts` |
-| Filter + sort interaction complex | Sort moves all rows, filter hides — simple separation of concerns |
-| CSV export includes hidden rows | `wmSetupCsvExport` filters to visible rows only |
-| Multiple meters with same date values | Date sorting and filter apply independently; stable by table order |
-| Filter select options stale after delete | `wmPopulateMeterFilter` called on `DOMContentLoaded` only; user must refresh page after delete (same as existing behavior) |
-
-## 16. What must not change
-
-- Backend route: `GET /water-meter/history` — no changes.
-- Backend handler: `water_meter_history()` — no changes.
+- Route endpoint: `POST /water-meter/readings` — no changes.
+- Route handler: `water_meter_add_reading()` — no changes.
 - Storage functions or schemas — no changes.
 - SQLite — no migration.
 - DynamoDB — no changes.
 - Auth/ownership behavior — no changes.
-- JSON response shapes — no changes.
-- Broken Clock templates — no changes.
-- Layout template (`_layout.html`) — no changes.
-- Chart.js CDN URL or SRI — no changes.
-- Existing `wm*` helper function signatures — only add new ones.
-- Existing stat card, chart, CSV, and sort behavior for "All meters" (default state).
+- JSON response shapes — only new error message content.
+- HTML redirect behavior — preserved.
+- `validate_reading()` return signature — preserved (returns `(errors, cleaned)`).
+- Existing error message keys — preserved.
+- Broken Clock — no changes.
+- Meter analytics/filtering — no changes.
+- Test fixtures — preserved.
 
-## 17. Open questions
+## 12. Open questions
 
-- **Should the meter filter appear only when multiple meters exist?** For simplicity, the `<select>` always appears when readings exist, even if only one meter is present (showing only "All meters" and that one option). This keeps the HTML structure predictable for tests.
+- **Should today's date be accepted?** Yes. `reading_date == date.today()` is valid.
+- **What about timezone differences?** The `reading_date` is a simple date string (YYYY-MM-DD). `date.today()` returns the server's local date. For a Flask app, this is the system timezone. This is consistent and predictable.
 
-- **Should deleting a row update the filter options?** No — the select is populated on page load. User must refresh the page after deleting. This matches existing behavior (table rows persist until page refresh).
-
-## 18. Validation commands
+## 13. Validation commands
 
 ```bash
 python -m pytest -q
 python -W error::ResourceWarning -m pytest -q
 ```
 
-## 19. Rollback notes
+## 14. Rollback notes
 
-1. Revert `app/templates/water_meter/history.html` to the version before adding meter filter.
-2. Revert test additions in `tests/test_water_meter_routes.py`.
-3. No database, backend, or configuration changes to revert.
+1. Revert `max` attribute from `app/templates/water_meter/form.html`.
+2. Revert future-date check from `app/water_meter/domain.py`.
+3. Revert test additions in `tests/test_water_meter_routes.py`.
+4. No database, backend, or configuration changes to revert.
