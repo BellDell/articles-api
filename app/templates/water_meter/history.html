@@ -116,8 +116,7 @@
             <th class="sortable">Date ▼</th>
             <th>Meter</th>
             <th>Value</th>
-            <th>Unit</th>
-            <th>Notes</th>
+            <th>Daily consumption</th>
             <th></th>
           </tr>
         </thead>
@@ -127,8 +126,7 @@
             <td>{{ r.reading_date }}</td>
             <td>{{ r.meter_name }}</td>
             <td class="col-val">{{ r.reading_value }}</td>
-            <td>{{ r.unit }}</td>
-            <td class="col-note">{{ r.notes }}</td>
+            <td></td>
             <td>
               <form action="/water-meter/readings/{{ r.id }}/delete" method="post"
                     onsubmit="return confirm('Delete this reading?')" style="margin:0">
@@ -247,6 +245,7 @@ function wmOnMeterFilterChange() {
   const allReadings = wmParseReadings(tbody);
   wmApplyMeterFilter(tbody, meter);
   wmRestripeVisibleRows(tbody);
+  wmComputeDailyConsumption(tbody);
   wmUpdateStats(wmFilterReadings(allReadings, meter));
   wmDestroyCharts();
   wmSetupCharts(wmFilterReadings(allReadings, meter));
@@ -268,8 +267,6 @@ function wmParseReadings(tbody) {
       date:  cells[0].textContent.trim(),
       meter: cells[1].textContent.trim(),
       value: Number.parseFloat(cells[2].textContent.trim()),
-      unit:  cells[3].textContent.trim(),
-      notes: cells[4].textContent.trim(),
     };
   });
 }
@@ -291,7 +288,7 @@ function wmUpdateStats(readings) {
   if (readings.length === 0) return;
 
   const byDateDesc = readings.slice().sort((a, b) => wmCompareDates(b.date, a.date));
-  const unit = byDateDesc[0].unit || 'm³';
+  const unit = 'm³';
 
   // Latest reading
   document.getElementById('stat-latest').textContent = wmFormatVal(byDateDesc[0].value) + ' ' + unit;
@@ -331,6 +328,45 @@ function wmBuildConsumptionSeries(readings) {
     data.push(Math.max(sorted[i].value - sorted[i - 1].value, 0));
   }
   return { labels, data };
+}
+
+function wmComputeDailyConsumption(tbody) {
+  const readings = wmParseReadings(tbody);
+  const trs = Array.from(tbody.querySelectorAll('tr'));
+  // Group readings by meter, sorted ascending by date
+  const meters = {};
+  readings.forEach((r, i) => {
+    if (!meters[r.meter]) meters[r.meter] = [];
+    meters[r.meter].push({ idx: i, date: r.date, value: r.value });
+  });
+  Object.values(meters).forEach(group => {
+    group.sort((a, b) => wmCompareDates(a.date, b.date));
+  });
+  // Build a map: for each index, store prev index within same meter
+  const prevMap = {};
+  Object.values(meters).forEach(group => {
+    for (let i = 0; i < group.length; i++) {
+      prevMap[group[i].idx] = i > 0 ? group[i - 1].idx : -1;
+    }
+  });
+  // Compute daily rate for each row
+  readings.forEach((r, idx) => {
+    const cell = trs[idx].cells[3]; // 4th column: Daily consumption
+    const prevIdx = prevMap[idx];
+    if (prevIdx === -1) {
+      cell.textContent = '—';
+      return;
+    }
+    const prev = readings[prevIdx];
+    const consumption = Math.max(r.value - prev.value, 0);
+    const days = wmDaysBetween(wmParseDate(prev.date), wmParseDate(r.date));
+    if (days <= 0) {
+      cell.textContent = '—';
+      return;
+    }
+    const daily = consumption / days;
+    cell.textContent = wmFormatVal(daily) + '/d';
+  });
 }
 
 function wmDestroyCharts() {
@@ -409,7 +445,7 @@ function wmSetupCharts(readings) {
 function wmSetupCsvExport(tbody) {
   document.getElementById('export-csv').addEventListener('click', () => {
     const trs = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.style.display !== 'none');
-    const header = ['Date', 'Meter', 'Value', 'Unit', 'Notes'];
+    const header = ['Date', 'Meter', 'Value', 'Daily consumption'];
     const csvRows = [header.map(wmEscapeCsvCell).join(',')];
     trs.forEach(tr => {
       const cells = tr.querySelectorAll('td');
@@ -418,7 +454,6 @@ function wmSetupCsvExport(tbody) {
         cells[1].textContent.trim(),
         cells[2].textContent.trim(),
         cells[3].textContent.trim(),
-        cells[4].textContent.trim(),
       ].map(wmEscapeCsvCell).join(','));
     });
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -448,6 +483,7 @@ function wmSetupSort(table, tbody) {
     const meter = wmGetSelectedMeter();
     wmApplyMeterFilter(tbody, meter);
     wmRestripeVisibleRows(tbody);
+    wmComputeDailyConsumption(tbody);
     const allReadings = wmParseReadings(tbody);
     wmUpdateStats(wmFilterReadings(allReadings, meter));
   });
@@ -464,6 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   wmPopulateMeterFilter(readings);
   wmUpdateStats(readings);
+  wmComputeDailyConsumption(tbody);
   wmSetupSort(table, tbody);
   wmSetupCharts(readings);
   wmSetupCsvExport(tbody);
