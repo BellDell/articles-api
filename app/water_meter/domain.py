@@ -40,7 +40,7 @@ def validate_reading(
             if parsed > date.today():
                 errors["reading_date"] = "Reading date cannot be in the future."
         except ValueError:
-            pass
+            errors["reading_date"] = "Reading date must be in YYYY-MM-DD format."
 
     # Defaults for optional fields
     cleaned_meter_name = (meter_name or "").strip() or "main"

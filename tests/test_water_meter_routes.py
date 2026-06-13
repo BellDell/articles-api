@@ -359,6 +359,34 @@ def test_action_row_has_export_csv_and_add_reading_when_readings_exist(authed_cl
     response = authed_client.get("/water-meter/history")
     text = response.get_data(as_text=True)
     assert 'id="wm-history-actions"' in text
+
+
+# ---------------------------------------------------------------------------
+# Chart layout tests
+# ---------------------------------------------------------------------------
+
+def test_chart_wrapper_class_present(authed_client):
+    """Both chart canvases are inside a .chart-wrap container when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'class="chart-wrap"' in text
+
+
+def test_chart_no_inline_height(authed_client):
+    """Chart canvases no longer have inline height:200px."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'height:200px' not in text
+
+
+def test_chart_resize_delay_in_options(authed_client):
+    """Chart.js options include resizeDelay."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "resizeDelay: 100" in text
     assert "Export CSV" in text
     assert "← Add another reading" in text
 

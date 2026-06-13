@@ -94,3 +94,24 @@ def test_invalid_date_format_skips_future_check():
     errors, _ = validate_reading(100, "not-a-date")
     assert "reading_date" in errors
     assert errors["reading_date"] == "Reading date must be in YYYY-MM-DD format."
+
+
+def test_invalid_calendar_date_rejected():
+    """An invalid calendar date like 2026-02-30 is rejected."""
+    errors, _ = validate_reading(100, "2026-02-30")
+    assert "reading_date" in errors
+    assert errors["reading_date"] == "Reading date must be in YYYY-MM-DD format."
+
+
+def test_leap_year_date_accepted():
+    """A valid leap year date (2024-02-29) is accepted."""
+    errors, cleaned = validate_reading(100, "2024-02-29")
+    assert errors == {}
+    assert cleaned["reading_date"] == "2024-02-29"
+
+
+def test_non_leap_year_date_rejected():
+    """An invalid non-leap-year date 2025-02-29 is rejected."""
+    errors, _ = validate_reading(100, "2025-02-29")
+    assert "reading_date" in errors
+    assert errors["reading_date"] == "Reading date must be in YYYY-MM-DD format."
