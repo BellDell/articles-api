@@ -60,3 +60,37 @@ def test_notes_optional():
 def test_meter_name_default_when_none():
     _, cleaned = validate_reading(100, "2026-06-01", meter_name=None)
     assert cleaned["meter_name"] == "main"
+
+
+# ---------------------------------------------------------------------------
+# Future-date validation tests
+# ---------------------------------------------------------------------------
+
+def test_future_date_rejected():
+    """A future reading_date returns a reading_date error."""
+    errors, _ = validate_reading(100, "2099-12-31")
+    assert "reading_date" in errors
+    assert errors["reading_date"] == "Reading date cannot be in the future."
+
+
+def test_today_date_accepted():
+    """Today's date is accepted."""
+    from datetime import date
+    today = date.today().isoformat()
+    errors, cleaned = validate_reading(100, today)
+    assert errors == {}
+    assert cleaned["reading_date"] == today
+
+
+def test_past_date_accepted():
+    """A past date is accepted."""
+    errors, cleaned = validate_reading(100, "2020-01-01")
+    assert errors == {}
+    assert cleaned["reading_date"] == "2020-01-01"
+
+
+def test_invalid_date_format_skips_future_check():
+    """A date that fails format check is caught before the future-date check."""
+    errors, _ = validate_reading(100, "not-a-date")
+    assert "reading_date" in errors
+    assert errors["reading_date"] == "Reading date must be in YYYY-MM-DD format."

@@ -45,10 +45,10 @@
         </p>
       </div>
     {% else %}
-      <table class="hist-table">
+      <table id="broken-clock-history-table" class="hist-table">
         <thead>
           <tr>
-            <th>Date</th>
+            <th id="bc-history-date-header">Date ▼</th>
             <th>When</th>
             <th>Actual → Broken</th>
             <th>Offset</th>
@@ -84,4 +84,52 @@
     <a class="bc-btn-ghost" href="/broken-clock" style="margin-top:16px">← Calculate again</a>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const table = document.getElementById('broken-clock-history-table');
+  if (!table) return;
+
+  const tbody = table.querySelector('tbody');
+  if (!tbody || tbody.querySelectorAll('tr').length === 0) return;
+
+  const dateHeader = table.querySelector('th:first-child');
+  const trs = Array.from(tbody.querySelectorAll('tr'));
+
+  // Sort descending by date cell text (YYYY-MM-DD string comparison)
+  trs.sort((a, b) => {
+    const da = a.cells[0].textContent.trim();
+    const db = b.cells[0].textContent.trim();
+    if (da.length !== 10 && db.length !== 10) return 0;
+    if (da.length !== 10) return 1;
+    if (db.length !== 10) return -1;
+    return db.localeCompare(da);
+  });
+  trs.forEach(tr => tbody.appendChild(tr));
+
+  // Re-stripe after initial sort
+  trs.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
+
+  // Make header clickable for toggling sort direction
+  let sortAsc = false;
+  dateHeader.style.cursor = 'pointer';
+  dateHeader.addEventListener('click', () => {
+    sortAsc = !sortAsc;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+      const da = a.cells[0].textContent.trim();
+      const db = b.cells[0].textContent.trim();
+      if (da.length !== 10 && db.length !== 10) return 0;
+      if (da.length !== 10) return 1;
+      if (db.length !== 10) return -1;
+      return sortAsc ? da.localeCompare(db) : db.localeCompare(da);
+    });
+    rows.forEach(tr => tbody.appendChild(tr));
+    dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
+    rows.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
+  });
+});
+</script>
 {% endblock %}

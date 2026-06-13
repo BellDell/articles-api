@@ -73,6 +73,7 @@
         <p>No readings yet.<br>
            <a href="/water-meter">Add your first reading →</a>
         </p>
+        <a class="bc-btn-ghost" href="/water-meter" style="margin-top:12px">← Add another reading</a>
       </div>
     {% else %}
       <div id="wm-stats" class="stat-row">
@@ -142,13 +143,13 @@
         </div>
       </div>
 
-      <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+      <div id="wm-history-actions" style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
         <button id="export-csv" class="bc-btn-ghost" style="font-size:13px">Export CSV</button>
+        <a class="bc-btn-ghost" href="/water-meter">← Add another reading</a>
       </div>
 
     {% endif %}
 
-    <a class="bc-btn-ghost" href="/water-meter" style="margin-top:16px">← Add another reading</a>
   </div>
 </div>
 

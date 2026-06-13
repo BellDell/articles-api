@@ -294,3 +294,42 @@ def test_legacy_record_without_calc_date_uses_created_at(tmp_path):
     records = sql.get_history(db_path)
     assert len(records) == 1
     assert records[0]["calc_date"] == created[:10]
+
+
+# ---------------------------------------------------------------------------
+# Frontend sort tests
+# ---------------------------------------------------------------------------
+
+def test_history_table_has_id(authed_client):
+    """History table has id="broken-clock-history-table"."""
+    authed_client.post("/broken-clock/calculate", json={
+        "wrong_observed_time": "11:00",
+        "real_observed_time": "10:00",
+    })
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "text/html"})
+    text = response.get_data(as_text=True)
+    assert 'id="broken-clock-history-table"' in text
+
+
+def test_history_date_header_has_marker(authed_client):
+    """Date header shows descending indicator."""
+    authed_client.post("/broken-clock/calculate", json={
+        "wrong_observed_time": "11:00",
+        "real_observed_time": "10:00",
+    })
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "text/html"})
+    text = response.get_data(as_text=True)
+    assert "▼" in text
+
+
+def test_history_shows_calc_date_values(authed_client):
+    """History HTML contains calc_date values in the Date column."""
+    authed_client.post("/broken-clock/calculate", json={
+        "wrong_observed_time": "11:00",
+        "real_observed_time": "10:00",
+        "calc_date": "2026-03-15",
+    })
+    response = authed_client.get("/broken-clock/history", headers={"Accept": "text/html"})
+    text = response.get_data(as_text=True)
+    assert "2026-03-15" in text
+    assert "Date" in text

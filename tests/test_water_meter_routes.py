@@ -347,3 +347,39 @@ def test_form_date_input_has_max(authed_client):
     response = authed_client.get("/water-meter")
     text = response.get_data(as_text=True)
     assert f'max="{today}"' in text
+
+
+# ---------------------------------------------------------------------------
+# Action row tests
+# ---------------------------------------------------------------------------
+
+def test_action_row_has_export_csv_and_add_reading_when_readings_exist(authed_client):
+    """When readings exist, Export CSV and ← Add another reading are in the same action row."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="wm-history-actions"' in text
+    assert "Export CSV" in text
+    assert "← Add another reading" in text
+
+
+def test_empty_history_does_not_show_export_csv(authed_client):
+    """Empty history does not show Export CSV button."""
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="export-csv"' not in text
+
+
+def test_empty_history_still_has_add_reading_link(authed_client):
+    """Empty history still has an add-reading link."""
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "← Add another reading" in text or "Add your first reading" in text
+
+
+def test_action_row_wrapper_id_present(authed_client):
+    """The action row has a stable id="wm-history-actions" when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="wm-history-actions"' in text
