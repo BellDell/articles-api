@@ -44,13 +44,16 @@ def ensure_db_initialized(db_path):
         columns = [row[1] for row in cursor.fetchall()]
         if "owner_username" not in columns:
             conn.execute("ALTER TABLE broken_clock_history ADD COLUMN owner_username TEXT")
+        # Idempotent migration: add calc_date if missing
+        if "calc_date" not in columns:
+            conn.execute("ALTER TABLE broken_clock_history ADD COLUMN calc_date TEXT")
         conn.commit()
 
 
 def save_calculation(db_path, real_observed_time, wrong_observed_time,
                      offset_minutes, offset_human, clock_status,
                      target_wrong_times, reference_points,
-                     owner_username=None):
+                     owner_username=None, calc_date=None):
     """Insert a successful calculation into the history table."""
     ensure_db_initialized(db_path)
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -60,12 +63,12 @@ def save_calculation(db_path, real_observed_time, wrong_observed_time,
                (created_at, real_observed_time, wrong_observed_time,
                 offset_minutes, offset_human, clock_status,
                 target_wrong_times_json, reference_points_json,
-                owner_username)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                owner_username, calc_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (created_at, real_observed_time, wrong_observed_time,
              offset_minutes, offset_human, clock_status,
              json.dumps(target_wrong_times), json.dumps(reference_points),
-             owner_username)
+             owner_username, calc_date)
         )
         conn.commit()
 
@@ -107,6 +110,7 @@ def get_history(db_path, owner_username=None):
                 "clock_status": row["clock_status"],
                 "target_wrong_times": json.loads(row["target_wrong_times_json"]),
                 "reference_points": json.loads(row["reference_points_json"]),
+                "calc_date": row["calc_date"] or row["created_at"][:10],
             })
     return rows
 

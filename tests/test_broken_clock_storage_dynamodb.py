@@ -239,3 +239,85 @@ def test_dynamodb_delete_legacy_record_by_created_at(monkeypatch):
     result = mod.delete_history_record("2026-06-01T10:00:00Z", None)
     assert result is True
     assert len(table.items) == 0
+
+
+# ---------------------------------------------------------------------------
+# DynamoDB calc_date tests
+# ---------------------------------------------------------------------------
+
+def test_dynamodb_save_includes_calc_date(monkeypatch):
+    """save_calculation includes calc_date in the item dict."""
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_dynamodb_storage()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    mod.save_calculation(
+        None, "10:00", "11:00", 60, "+60 minutes", "fast",
+        ["07:00"], [{"wrong_time": "07:00", "real_time": "06:00", "day_shift": 0}],
+        calc_date="2026-05-15",
+    )
+
+    table = fake_db.Table("test-table")
+    assert len(table.items) == 1
+    assert table.items[0]["calc_date"] == "2026-05-15"
+
+
+def test_dynamodb_get_history_returns_calc_date(monkeypatch):
+    """get_history returns calc_date in the response."""
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_dynamodb_storage()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    table = fake_db.Table("test-table")
+    table.put_item(Item={
+        "id": "rec001",
+        "app_id": "test-app",
+        "created_at": "2026-06-01T12:00:00Z",
+        "real_observed_time": "10:00",
+        "wrong_observed_time": "11:00",
+        "offset_minutes": 60,
+        "offset_human": "+60 minutes",
+        "clock_status": "fast",
+        "target_wrong_times": json.dumps(["07:00"]),
+        "reference_points": json.dumps([{"wrong_time": "07:00", "real_time": "06:00", "day_shift": 0}]),
+        "calc_date": "2026-05-20",
+    })
+
+    history = mod.get_history(None)
+    assert len(history) == 1
+    assert history[0]["calc_date"] == "2026-05-20"
+
+
+def test_dynamodb_get_history_legacy_no_calc_date_fallback(monkeypatch):
+    """get_history falls back to created_at[:10] for legacy items without calc_date."""
+    monkeypatch.setenv("DYNAMODB_TABLE", "test-table")
+    monkeypatch.setenv("APP_ID", "test-app")
+    mod = _reload_dynamodb_storage()
+
+    fake_db = FakeDynamoDB()
+    monkeypatch.setattr("boto3.resource", lambda service, **kw: fake_db)
+
+    table = fake_db.Table("test-table")
+    table.put_item(Item={
+        "id": "legacy001",
+        "app_id": "test-app",
+        "created_at": "2026-01-01T10:00:00Z",
+        "real_observed_time": "09:00",
+        "wrong_observed_time": "10:00",
+        "offset_minutes": 60,
+        "offset_human": "+60 minutes",
+        "clock_status": "fast",
+        "target_wrong_times": json.dumps([]),
+        "reference_points": json.dumps([]),
+        # No calc_date — legacy item
+    })
+
+    history = mod.get_history(None)
+    assert len(history) == 1
+    assert history[0]["calc_date"] == "2026-01-01"  # fallback to created_at[:10]
