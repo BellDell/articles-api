@@ -1,6 +1,7 @@
 """Domain validation for water meter readings."""
 
 import re
+from datetime import date
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -32,6 +33,14 @@ def validate_reading(
         errors["reading_date"] = "Reading date is required."
     elif not _DATE_RE.match(reading_date):
         errors["reading_date"] = "Reading date must be in YYYY-MM-DD format."
+
+    if not errors.get("reading_date") and reading_date and reading_date.strip():
+        try:
+            parsed = date.fromisoformat(reading_date.strip())
+            if parsed > date.today():
+                errors["reading_date"] = "Reading date cannot be in the future."
+        except ValueError:
+            errors["reading_date"] = "Reading date must be in YYYY-MM-DD format."
 
     # Defaults for optional fields
     cleaned_meter_name = (meter_name or "").strip() or "main"

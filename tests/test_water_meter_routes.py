@@ -108,7 +108,7 @@ def test_history_json_returns_list(authed_client):
 def test_history_shows_added_reading_after_post(authed_client):
     authed_client.post("/water-meter/readings", data={
         "reading_value": "200",
-        "reading_date": "2026-07-01",
+        "reading_date": "2024-07-01",
         "meter_name": "garden",
     })
     response = authed_client.get("/water-meter/history")
@@ -282,3 +282,132 @@ def test_meter_filter_not_in_empty_history(authed_client):
     text = response.get_data(as_text=True)
     assert 'id="meter-filter"' not in text
     assert "No readings yet" in text
+
+
+# ---------------------------------------------------------------------------
+# Future-date rejection tests
+# ---------------------------------------------------------------------------
+
+def test_future_date_json_rejected(authed_client):
+    """JSON POST with future date returns 400."""
+    response = authed_client.post("/water-meter/readings", json={
+        "reading_value": 100,
+        "reading_date": "2099-12-31",
+    })
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data["error"] == "Reading date cannot be in the future."
+
+
+def test_future_date_html_rejected(authed_client):
+    """HTML form POST with future date redirects with error."""
+    response = authed_client.post("/water-meter/readings", data={
+        "reading_value": "100",
+        "reading_date": "2099-12-31",
+    })
+    assert response.status_code == 302
+    assert "?error=Reading%20date%20cannot%20be%20in%20the%20future" in response.headers["Location"]
+
+
+def test_future_date_not_saved(authed_client):
+    """Future date submission does not create a history record."""
+    authed_client.post("/water-meter/readings", json={
+        "reading_value": 100,
+        "reading_date": "2099-12-31",
+    })
+    history = authed_client.get("/water-meter/history", headers={"Accept": "application/json"})
+    data = history.get_json()
+    assert len(data) == 0
+
+
+def test_today_date_accepted(authed_client):
+    """JSON POST with today's date returns 201."""
+    from datetime import date as dt_date
+    today = dt_date.today().isoformat()
+    response = authed_client.post("/water-meter/readings", json={
+        "reading_value": 100,
+        "reading_date": today,
+    })
+    assert response.status_code == 201
+
+
+def test_past_date_accepted(authed_client):
+    """JSON POST with past date returns 201."""
+    response = authed_client.post("/water-meter/readings", json={
+        "reading_value": 100,
+        "reading_date": "2020-01-01",
+    })
+    assert response.status_code == 201
+
+
+def test_form_date_input_has_max(authed_client):
+    """Form date input includes max="YYYY-MM-DD" with today."""
+    from datetime import date as dt_date
+    today = dt_date.today().isoformat()
+    response = authed_client.get("/water-meter")
+    text = response.get_data(as_text=True)
+    assert f'max="{today}"' in text
+
+
+# ---------------------------------------------------------------------------
+# Action row tests
+# ---------------------------------------------------------------------------
+
+def test_action_row_has_export_csv_and_add_reading_when_readings_exist(authed_client):
+    """When readings exist, Export CSV and ← Add another reading are in the same action row."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="wm-history-actions"' in text
+
+
+# ---------------------------------------------------------------------------
+# Chart layout tests
+# ---------------------------------------------------------------------------
+
+def test_chart_wrapper_class_present(authed_client):
+    """Both chart canvases are inside a .chart-wrap container when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'class="chart-wrap"' in text
+
+
+def test_chart_no_inline_height(authed_client):
+    """Chart canvases no longer have inline height:200px."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'height:200px' not in text
+
+
+def test_chart_resize_delay_in_options(authed_client):
+    """Chart.js options include resizeDelay."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "resizeDelay: 100" in text
+    assert "Export CSV" in text
+    assert "← Add another reading" in text
+
+
+def test_empty_history_does_not_show_export_csv(authed_client):
+    """Empty history does not show Export CSV button."""
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="export-csv"' not in text
+
+
+def test_empty_history_still_has_add_reading_link(authed_client):
+    """Empty history still has an add-reading link."""
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "← Add another reading" in text or "Add your first reading" in text
+
+
+def test_action_row_wrapper_id_present(authed_client):
+    """The action row has a stable id="wm-history-actions" when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert 'id="wm-history-actions"' in text

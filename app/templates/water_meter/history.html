@@ -60,6 +60,17 @@
     font-size: 12px; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--bc-text-muted); margin: 0 0 10px;
   }
+  .chart-wrap {
+    position: relative;
+    height: 110px;
+    max-height: 110px;
+    overflow: hidden;
+  }
+  .chart-wrap canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
 {% endblock %}
 
 {% block content %}
@@ -73,6 +84,7 @@
         <p>No readings yet.<br>
            <a href="/water-meter">Add your first reading →</a>
         </p>
+        <a class="bc-btn-ghost" href="/water-meter" style="margin-top:12px">← Add another reading</a>
       </div>
     {% else %}
       <div id="wm-stats" class="stat-row">
@@ -134,21 +146,25 @@
       <div class="chart-row">
         <div class="chart-box">
           <h3 class="chart-title">Meter readings over time</h3>
-          <canvas id="chart-readings" style="height:200px"></canvas>
+          <div class="chart-wrap">
+            <canvas id="chart-readings"></canvas>
+          </div>
         </div>
         <div class="chart-box">
           <h3 class="chart-title">Consumption per period (m³)</h3>
-          <canvas id="chart-consumption" style="height:200px"></canvas>
+          <div class="chart-wrap">
+            <canvas id="chart-consumption"></canvas>
+          </div>
         </div>
       </div>
 
-      <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+      <div id="wm-history-actions" style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
         <button id="export-csv" class="bc-btn-ghost" style="font-size:13px">Export CSV</button>
+        <a class="bc-btn-ghost" href="/water-meter">← Add another reading</a>
       </div>
 
     {% endif %}
 
-    <a class="bc-btn-ghost" href="/water-meter" style="margin-top:16px">← Add another reading</a>
   </div>
 </div>
 
@@ -351,6 +367,7 @@ function wmSetupCharts(readings) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        resizeDelay: 100,
         plugins: { legend: { display: false } },
         scales: {
           x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
@@ -378,6 +395,7 @@ function wmSetupCharts(readings) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        resizeDelay: 100,
         plugins: { legend: { display: false } },
         scales: {
           x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
