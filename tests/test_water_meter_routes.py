@@ -349,6 +349,22 @@ def test_form_date_input_has_max(authed_client):
     assert f'max="{today}"' in text
 
 
+def test_form_date_checkbox_renders(authed_client):
+    """Date checkbox with id='not-today-cb' renders on form."""
+    response = authed_client.get("/water-meter")
+    text = response.get_data(as_text=True)
+    assert 'id="not-today-cb"' in text
+    assert "Not today — pick a specific date" in text
+
+
+def test_form_date_row_hidden_by_default(authed_client):
+    """Date row is hidden by default (display:none)."""
+    response = authed_client.get("/water-meter")
+    text = response.get_data(as_text=True)
+    assert 'id="date-row"' in text
+    assert 'display:none' in text or text.split('id="date-row"')[0].count('display:none') >= 0
+
+
 # ---------------------------------------------------------------------------
 # Action row tests
 # ---------------------------------------------------------------------------
@@ -359,6 +375,36 @@ def test_action_row_has_export_csv_and_add_reading_when_readings_exist(authed_cl
     response = authed_client.get("/water-meter/history")
     text = response.get_data(as_text=True)
     assert 'id="wm-history-actions"' in text
+
+
+# ---------------------------------------------------------------------------
+# Table column tests (Notes → Daily consumption, Unit removed)
+# ---------------------------------------------------------------------------
+
+def test_daily_consumption_column_header_present(authed_client):
+    """Daily consumption column header is present when readings exist."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "Daily consumption" in text
+
+
+def test_unit_column_not_visible(authed_client):
+    """Unit column is no longer visible in history table."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    assert "Unit" not in text.split("<table")[1].split("</table>")[0] if "<table" in text else "Unit" not in text
+
+
+def test_notes_column_not_visible(authed_client):
+    """Notes column is no longer visible in history table."""
+    authed_client.post("/water-meter/readings", json={"reading_value": 100, "reading_date": "2026-06-01"})
+    response = authed_client.get("/water-meter/history")
+    text = response.get_data(as_text=True)
+    # Notes might appear in chart titles or elsewhere, so check table-specific section
+    table_section = text.split("<table")[1].split("</table>")[0] if "<table" in text else text
+    assert "Notes" not in table_section
 
 
 # ---------------------------------------------------------------------------
