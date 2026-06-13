@@ -51,7 +51,7 @@ def ensure_db_initialized(_db_path):
 def save_calculation(_db_path, real_observed_time, wrong_observed_time,
                      offset_minutes, offset_human, clock_status,
                      target_wrong_times, reference_points,
-                     owner_username=None):
+                     owner_username=None, calc_date=None):
     """Insert a successful calculation into DynamoDB."""
     app_id = os.environ.get("APP_ID", APP_ID_DEFAULT)
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -68,6 +68,7 @@ def save_calculation(_db_path, real_observed_time, wrong_observed_time,
         "clock_status": clock_status,
         "target_wrong_times": json.dumps(target_wrong_times),
         "reference_points": json.dumps(reference_points),
+        "calc_date": calc_date,
     }
     if owner_username:
         item["owner_username"] = owner_username
@@ -104,6 +105,7 @@ def get_history(_db_path, owner_username=None):
             "clock_status": item["clock_status"],
             "target_wrong_times": json.loads(item["target_wrong_times"]),
             "reference_points": json.loads(item["reference_points"]),
+            "calc_date": item.get("calc_date") or item["created_at"][:10],
         })
 
     return rows

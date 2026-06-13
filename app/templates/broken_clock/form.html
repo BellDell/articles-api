@@ -70,6 +70,18 @@
         <div class="bc-help">When the broken clock shows these times, what is the real time?</div>
       </div>
 
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--bc-text-secondary);cursor:pointer">
+          <input type="checkbox" id="not-today-cb" name="not_today" value="1">
+          Not today — pick a specific date
+        </label>
+      </div>
+
+      <div id="date-row" style="margin-bottom:16px;display:none">
+        <label class="bc-label" for="calc-date-input">Calculation date</label>
+        <input type="date" name="calc_date" id="calc-date-input" class="bc-input">
+      </div>
+
       <button id="bc-submit" type="submit" class="bc-btn" style="width:100%;height:2.8rem;font-size:15px">
         Calculate real times
       </button>
@@ -150,11 +162,19 @@
     event.preventDefault();
     hideError();
 
+    // Ensure unchecked checkbox still sends today
+    const cb = document.getElementById('not-today-cb');
+    const dateInput = document.getElementById('calc-date-input');
+    if (cb && dateInput && !cb.checked) {
+      dateInput.value = new Date().toISOString().split('T')[0];
+    }
+
     const payload = {
       real_observed_time:  document.getElementById('real_observed_time').value.trim(),
       wrong_observed_time: document.getElementById('wrong_observed_time').value.trim(),
       target_wrong_times:  document.getElementById('target_wrong_times').value
         .split(',').map(s => s.trim()).filter(Boolean),
+      calc_date:           document.getElementById('calc-date-input').value,
     };
 
     if (!payload.wrong_observed_time) {
@@ -182,6 +202,21 @@
       setLoading(false);
     }
   });
+
+  // Date picker toggle
+  const cb = document.getElementById('not-today-cb');
+  const dateRow = document.getElementById('date-row');
+  const dateInput = document.getElementById('calc-date-input');
+  if (cb && dateRow && dateInput) {
+    const today = new Date().toISOString().split('T')[0];
+    dateInput.value = today;
+    cb.addEventListener('change', () => {
+      dateRow.style.display = cb.checked ? 'block' : 'none';
+      if (!cb.checked) {
+        dateInput.value = today;
+      }
+    });
+  }
 })();
 </script>
 {% endblock %}

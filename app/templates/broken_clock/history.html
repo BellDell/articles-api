@@ -48,6 +48,7 @@
       <table class="hist-table">
         <thead>
           <tr>
+            <th>Date</th>
             <th>When</th>
             <th>Actual → Broken</th>
             <th>Offset</th>
@@ -59,6 +60,7 @@
         <tbody>
           {% for r in records %}
           <tr>
+            <td style="color:var(--bc-text-muted);font-size:12px">{{ r.calc_date }}</td>
             <td class="col-ts">{{ r.created_at[:16].replace('T',' ') }}</td>
             <td class="col-time">{{ r.real_observed_time }} → {{ r.wrong_observed_time }}</td>
             <td class="col-off">{{ r.offset_human }}</td>

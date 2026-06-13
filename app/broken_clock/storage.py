@@ -41,7 +41,7 @@ def ensure_db_initialized(db_path):
 def save_calculation(db_path, real_observed_time, wrong_observed_time,
                      offset_minutes, offset_human, clock_status,
                      target_wrong_times, reference_points,
-                     owner_username=None):
+                     owner_username=None, calc_date=None):
     backend = _get_backend()
     if backend == "dynamodb":
         from app.broken_clock.storage_dynamodb import save_calculation as _fn
@@ -50,7 +50,7 @@ def save_calculation(db_path, real_observed_time, wrong_observed_time,
     return _fn(db_path, real_observed_time, wrong_observed_time,
                offset_minutes, offset_human, clock_status,
                target_wrong_times, reference_points,
-               owner_username=owner_username)
+               owner_username=owner_username, calc_date=calc_date)
 
 
 def get_history(db_path, owner_username=None):

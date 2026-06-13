@@ -6,7 +6,7 @@ and app.broken_clock_storage (SQLite storage helpers).
 """
 
 from flask import request, jsonify, render_template, redirect, make_response, g
-from datetime import datetime
+from datetime import datetime, date
 import os
 from werkzeug.security import check_password_hash
 
@@ -151,6 +151,21 @@ def _notification_class(clock_status):
     return "is-danger"
 
 
+def _parse_calc_date(raw):
+    """Validate and parse a calc_date string, defaulting to today.
+
+    Accepts ISO format strings like '2026-06-13'.
+    Returns an ISO-format date string (YYYY-MM-DD).
+    """
+    if not raw or not raw.strip():
+        return date.today().isoformat()
+    try:
+        date.fromisoformat(raw.strip())
+        return raw.strip()
+    except (ValueError, TypeError):
+        return date.today().isoformat()
+
+
 # ---------------------------------------------------------------------------
 # Route handlers (module-level)
 # ---------------------------------------------------------------------------
@@ -271,6 +286,14 @@ def broken_clock_calculate():
     if err:
         return err
 
+    # Extract calc_date before it's consumed by _parse_request_data
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        raw_calc_date = body.get("calc_date", "")
+    else:
+        raw_calc_date = request.form.get("calc_date", "")
+    calc_date = _parse_calc_date(raw_calc_date)
+
     real_p = parse_hhmm(real_observed_time)
     wrong_p = parse_hhmm(wrong_observed_time)
 
@@ -307,7 +330,8 @@ def broken_clock_calculate():
         save_calculation(db_path, real_observed_time, wrong_observed_time,
                          offset_minutes, offset_human, clock_status,
                          target_wrong_times, reference_points,
-                         owner_username=getattr(g, "current_username", None))
+                         owner_username=getattr(g, "current_username", None),
+                         calc_date=calc_date)
     except Exception as e:
         if request.is_json:
             return jsonify({"error": f"Database error: {str(e)}"}), 500
@@ -328,6 +352,7 @@ def broken_clock_calculate():
             clock_status=clock_status,
             reference_points=reference_points,
             notif_class=_notification_class(clock_status),
+            calc_date=calc_date,
         ), 200
 
     return jsonify({
@@ -337,7 +362,8 @@ def broken_clock_calculate():
         "offset_human": offset_human,
         "clock_status": clock_status,
         "reference_points": reference_points,
-        "explanation": explanation
+        "explanation": explanation,
+        "calc_date": calc_date,
     }), 200
 
 
