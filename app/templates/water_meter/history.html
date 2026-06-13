@@ -144,197 +144,181 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"
+        integrity="sha384-T/4KgSWuZEPozpPz7rnnp/5lDSnpY1VPJCojf1S81uTHS1E38qgLfMgVsAeRCWc4"
+        crossorigin="anonymous" defer></script>
 
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-  const table = document.getElementById('wm-history-table');
-  if (!table) return;
+// ---- Water Meter helper functions (outer scope) ----
+function wmParseDate(s) {
+  const parts = s.trim().split('-');
+  if (parts.length !== 3) return null;
+  return { y: Number.parseInt(parts[0], 10), m: Number.parseInt(parts[1], 10), d: Number.parseInt(parts[2], 10) };
+}
 
-  const tbody = table.querySelector('tbody');
-  const rows = Array.from(tbody.querySelectorAll('tr'));
-  if (rows.length === 0) return;
+function wmDateToKey(d) { return d.y * 10000 + d.m * 100 + d.d; }
 
-  // ---- Helpers ----
-  function parseDate(s) {
-    const parts = s.trim().split('-');
-    if (parts.length !== 3) return null;
-    return { y: parseInt(parts[0], 10), m: parseInt(parts[1], 10), d: parseInt(parts[2], 10) };
+function wmDaysBetween(start, end) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const s = new Date(start.y, start.m - 1, start.d);
+  const e = new Date(end.y, end.m - 1, end.d);
+  return Math.round((e - s) / msPerDay);
+}
+
+function wmCompareDates(a, b) {
+  return wmDateToKey(wmParseDate(a)) - wmDateToKey(wmParseDate(b));
+}
+
+function wmFormatVal(v) { return v.toFixed(2); }
+
+function wmEscapeCsvCell(value) {
+  const s = String(value);
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return '"' + s.replaceAll('"', '""') + '"';
   }
+  return s;
+}
 
-  function dateToKey(d) { return d.y * 10000 + d.m * 100 + d.d; }
-
-  function daysBetween(start, end) {
-    const msPerDay = 24 * 60 * 60 * 1000;
-    return Math.round((new Date(end.y, end.m - 1, end.d) - new Date(start.y, start.m - 1, start.d)) / msPerDay);
-  }
-
-  function compareDates(a, b) {
-    return dateToKey(parseDate(a)) - dateToKey(parseDate(b));
-  }
-
-  function formatVal(v) { return v.toFixed(2); }
-
-  // ---- Read data from DOM ----
-  function parseReadings() {
-    const trs = Array.from(tbody.querySelectorAll('tr'));
-    return trs.map(tr => {
-      const cells = tr.querySelectorAll('td');
-      return {
-        date:      cells[0].textContent.trim(),
-        meter:     cells[1].textContent.trim(),
-        value:     parseFloat(cells[2].textContent.trim()),
-        unit:      cells[3].textContent.trim(),
-        notes:     cells[4].textContent.trim(),
-      };
-    });
-  }
-
-  // ---- Stat cards ----
-  function calculateStats() {
-    const readings = parseReadings();
-    if (readings.length === 0) return;
-
-    readings.sort((a, b) => compareDates(b.date, a.date));
-    const unit = readings[0].unit || 'm³';
-
-    // Latest reading
-    document.getElementById('stat-latest').textContent = formatVal(readings[0].value) + ' ' + unit;
-
-    // This month
-    const now = new Date();
-    const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-    const monthReadings = readings.filter(r => r.date.startsWith(thisMonth)).sort((a, b) => compareDates(a.date, b.date));
-    let monthConsumption = 0;
-    for (let i = 1; i < monthReadings.length; i++) {
-      const diff = monthReadings[i].value - monthReadings[i - 1].value;
-      if (diff > 0) monthConsumption += diff;
-    }
-    document.getElementById('stat-month').textContent = (monthReadings.length >= 2 ? '+' + formatVal(monthConsumption) + ' ' + unit : '—');
-
-    // Daily avg
-    const sortedAsc = [...readings].sort((a, b) => compareDates(a.date, b.date));
-    if (sortedAsc.length >= 2) {
-      let totalConsumption = 0;
-      for (let i = 1; i < sortedAsc.length; i++) {
-        const diff = sortedAsc[i].value - sortedAsc[i - 1].value;
-        if (diff > 0) totalConsumption += diff;
-      }
-      const firstDate = parseDate(sortedAsc[0].date);
-      const lastDate = parseDate(sortedAsc[sortedAsc.length - 1].date);
-      if (firstDate && lastDate) {
-        const daySpan = daysBetween(firstDate, lastDate);
-        if (daySpan > 0) {
-          document.getElementById('stat-daily').textContent = formatVal(totalConsumption / daySpan) + ' ' + unit + '/d';
-        }
-      }
-    }
-  }
-
-  // ---- Date sorting ----
-  let sortAsc = false;
-  const dateHeader = table.querySelector('th:first-child');
-  dateHeader.addEventListener('click', () => {
-    sortAsc = !sortAsc;
-    const trs = Array.from(tbody.querySelectorAll('tr'));
-    trs.sort((a, b) => {
-      const da = a.cells[0].textContent.trim();
-      const db = b.cells[0].textContent.trim();
-      return sortAsc ? compareDates(da, db) : compareDates(db, da);
-    });
-    trs.forEach(tr => tbody.appendChild(tr));
-    dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
-    // Re-stripe
-    trs.forEach((tr, i) => {
-      tr.style.background = i % 2 === 1 ? '#f8f6f2' : '';
-    });
-    calculateStats();
+function wmParseReadings(tbody) {
+  const trs = Array.from(tbody.querySelectorAll('tr'));
+  return trs.map(tr => {
+    const cells = tr.querySelectorAll('td');
+    return {
+      date:  cells[0].textContent.trim(),
+      meter: cells[1].textContent.trim(),
+      value: Number.parseFloat(cells[2].textContent.trim()),
+      unit:  cells[3].textContent.trim(),
+      notes: cells[4].textContent.trim(),
+    };
   });
+}
 
-  // ---- Charts ----
-  function setupCharts() {
-    if (typeof Chart === 'undefined') return;
-    const readings = parseReadings();
-    if (readings.length < 2) return;
+function wmSortReadings(readings) {
+  return readings.slice().sort((a, b) => wmCompareDates(a.date, b.date));
+}
 
-    const sortedAsc = readings.slice().sort((a, b) => compareDates(a.date, b.date));
+function wmCalculateTotalConsumption(readings) {
+  const sorted = wmSortReadings(readings);
+  let total = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    total += Math.max(sorted[i].value - sorted[i - 1].value, 0);
+  }
+  return total;
+}
 
-    // Chart A: readings over time (line)
-    const ctx1 = document.getElementById('chart-readings');
-    if (ctx1) {
-      new Chart(ctx1, {
-        type: 'line',
-        data: {
-          labels: sortedAsc.map(r => r.date),
-          datasets: [{
-            label: 'Reading value',
-            data: sortedAsc.map(r => r.value),
-            borderColor: '#c2410c',
-            backgroundColor: '#c2410c22',
-            fill: true,
-            tension: 0.2,
-            pointRadius: 3,
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
-            y: { beginAtZero: false, ticks: { font: { size: 11 } } }
-          }
-        }
-      });
-    }
+function wmUpdateStats(readings) {
+  if (readings.length === 0) return;
 
-    // Chart B: consumption per period (bar)
-    const ctx2 = document.getElementById('chart-consumption');
-    if (ctx2) {
-      const labels = [];
-      const consumption = [];
-      for (let i = 1; i < sortedAsc.length; i++) {
-        const diff = sortedAsc[i].value - sortedAsc[i - 1].value;
-        labels.push(sortedAsc[i].date);
-        consumption.push(diff > 0 ? diff : 0);
+  const byDateDesc = readings.slice().sort((a, b) => wmCompareDates(b.date, a.date));
+  const unit = byDateDesc[0].unit || 'm³';
+
+  // Latest reading
+  document.getElementById('stat-latest').textContent = wmFormatVal(byDateDesc[0].value) + ' ' + unit;
+
+  // This month
+  const now = new Date();
+  const monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const monthReadings = readings.filter(r => r.date.startsWith(monthKey));
+  if (monthReadings.length >= 2) {
+    const monthTotal = wmCalculateTotalConsumption(monthReadings);
+    document.getElementById('stat-month').textContent = '+' + wmFormatVal(monthTotal) + ' ' + unit;
+  } else {
+    document.getElementById('stat-month').textContent = '—';
+  }
+
+  // Daily avg
+  if (readings.length >= 2) {
+    const sorted = wmSortReadings(readings);
+    const totalConsumption = wmCalculateTotalConsumption(readings);
+    const firstDate = wmParseDate(sorted[0].date);
+    const lastDate = wmParseDate(sorted[sorted.length - 1].date);
+    if (firstDate && lastDate) {
+      const daySpan = wmDaysBetween(firstDate, lastDate);
+      if (daySpan > 0) {
+        document.getElementById('stat-daily').textContent = wmFormatVal(totalConsumption / daySpan) + ' ' + unit + '/d';
       }
-      new Chart(ctx2, {
-        type: 'bar',
-        data: {
-          labels: labels,
-          datasets: [{
-            label: 'Consumption',
-            data: consumption,
-            backgroundColor: '#c2410c',
-            borderRadius: 3,
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
-            y: { beginAtZero: true, ticks: { font: { size: 11 } } }
-          }
+    }
+  }
+}
+
+function wmBuildConsumptionSeries(readings) {
+  const sorted = wmSortReadings(readings);
+  const labels = [];
+  const data = [];
+  for (let i = 1; i < sorted.length; i++) {
+    labels.push(sorted[i].date);
+    data.push(Math.max(sorted[i].value - sorted[i - 1].value, 0));
+  }
+  return { labels, data };
+}
+
+function wmSetupCharts(readings) {
+  if (typeof Chart === 'undefined' || readings.length < 2) return;
+
+  const sorted = wmSortReadings(readings);
+
+  // Chart A: readings over time
+  const ctx1 = document.getElementById('chart-readings');
+  if (ctx1) {
+    new Chart(ctx1, {
+      type: 'line',
+      data: {
+        labels: sorted.map(r => r.date),
+        datasets: [{
+          label: 'Reading value',
+          data: sorted.map(r => r.value),
+          borderColor: '#c2410c',
+          backgroundColor: '#c2410c22',
+          fill: true,
+          tension: 0.2,
+          pointRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
+          y: { beginAtZero: false, ticks: { font: { size: 11 } } }
         }
-      });
-    }
+      }
+    });
   }
 
-  // ---- CSV export ----
-  function escapeCsvCell(value) {
-    const s = String(value);
-    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-      return '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
+  // Chart B: consumption per period
+  const ctx2 = document.getElementById('chart-consumption');
+  if (ctx2) {
+    const series = wmBuildConsumptionSeries(readings);
+    new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: series.labels,
+        datasets: [{
+          label: 'Consumption',
+          data: series.data,
+          backgroundColor: '#c2410c',
+          borderRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { maxTicksLimit: 8, font: { size: 11 } } },
+          y: { beginAtZero: true, ticks: { font: { size: 11 } } }
+        }
+      }
+    });
   }
+}
 
+function wmSetupCsvExport(tbody) {
   document.getElementById('export-csv').addEventListener('click', () => {
     const trs = tbody.querySelectorAll('tr');
     const header = ['Date', 'Meter', 'Value', 'Unit', 'Notes'];
-    const csvRows = [header.map(escapeCsvCell).join(',')];
+    const csvRows = [header.map(wmEscapeCsvCell).join(',')];
     trs.forEach(tr => {
       const cells = tr.querySelectorAll('td');
       csvRows.push([
@@ -343,7 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
         cells[2].textContent.trim(),
         cells[3].textContent.trim(),
         cells[4].textContent.trim(),
-      ].map(escapeCsvCell).join(','));
+      ].map(wmEscapeCsvCell).join(','));
     });
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -353,10 +337,39 @@ document.addEventListener('DOMContentLoaded', () => {
     a.click();
     URL.revokeObjectURL(url);
   });
+}
 
-  // ---- Init ----
-  calculateStats();
-  setupCharts();
+function wmSetupSort(table, tbody) {
+  let sortAsc = false;
+  const dateHeader = table.querySelector('th:first-child');
+  dateHeader.addEventListener('click', () => {
+    sortAsc = !sortAsc;
+    const trs = Array.from(tbody.querySelectorAll('tr'));
+    trs.sort((a, b) => {
+      const da = a.cells[0].textContent.trim();
+      const db = b.cells[0].textContent.trim();
+      return sortAsc ? wmCompareDates(da, db) : wmCompareDates(db, da);
+    });
+    trs.forEach(tr => tbody.appendChild(tr));
+    dateHeader.textContent = 'Date ' + (sortAsc ? '▲' : '▼');
+    trs.forEach((tr, i) => { tr.style.background = i % 2 === 1 ? '#f8f6f2' : ''; });
+    wmUpdateStats(wmParseReadings(tbody));
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const table = document.getElementById('wm-history-table');
+  if (!table) return;
+
+  const tbody = table.querySelector('tbody');
+  if (tbody.querySelectorAll('tr').length === 0) return;
+
+  const readings = wmParseReadings(tbody);
+
+  wmUpdateStats(readings);
+  wmSetupSort(table, tbody);
+  wmSetupCharts(readings);
+  wmSetupCsvExport(tbody);
 });
 </script>
 {% endblock %}
